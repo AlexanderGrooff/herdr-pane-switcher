@@ -1,6 +1,6 @@
 # MRU Panes (herdr-mru-cycle)
 
-A [Herdr](https://herdr.dev) plugin that cycles panes in most-recently-used order across all workspaces and jumps to panes that need attention (`blocked` or `done`).
+A [Herdr](https://herdr.dev) plugin that cycles panes in most-recently-used order across all workspaces and jumps to panes that need attention, in priority order: `blocked`, `done`, `idle`, `working`.
 
 ## Requirements
 
@@ -14,8 +14,8 @@ The plugin registers three actions and event hooks on `pane.focused` and `pane.c
 
 - On every focus/close event, the plugin updates the MRU history stored in `HERDR_PLUGIN_STATE_DIR`.
 - `alex.mru-tabs.cycle` focuses the next pane in MRU order.
-- `alex.mru-tabs.focus-attention` focuses the first pane whose `agent_status` is `blocked` or `done`, preferring `blocked`.
-- `alex.mru-tabs.cycle-attention` cycles to the next `blocked`/`done` pane after the current one, wrapping to the first.
+- `alex.mru-tabs.focus-attention` focuses the first pane by `agent_status` priority: `blocked`, then `done`, then `idle`, then `working`.
+- `alex.mru-tabs.cycle-attention` cycles to the next pane in that same priority order after the current one, wrapping to the first.
 - Repeated `cycle` invocations within `CYCLE_TIMEOUT_SECONDS` (1 second) continue cycling through the same MRU order instead of restarting.
 
 ## Loading the plugin

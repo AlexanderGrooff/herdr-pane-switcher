@@ -9,7 +9,12 @@ from contextlib import contextmanager
 from pathlib import Path
 
 CYCLE_TIMEOUT_SECONDS = 1.0
-ATTENTION_STATUSES = {"blocked", "done"}
+STATUS_PRIORITY = {
+    "blocked": 0,
+    "done": 1,
+    "idle": 2,
+    "working": 3,
+}
 
 
 def nested_value(value, key):
@@ -186,9 +191,9 @@ def attention_panes():
     panes = [
         pane
         for pane in all_panes()
-        if pane.get("agent_status") in ATTENTION_STATUSES
+        if pane.get("agent_status") in STATUS_PRIORITY
     ]
-    panes.sort(key=lambda pane: pane["agent_status"] == "done")
+    panes.sort(key=lambda pane: STATUS_PRIORITY[pane["agent_status"]])
     return panes
 
 

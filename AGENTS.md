@@ -13,8 +13,8 @@ This is a Herdr plugin that cycles panes in most-recently-used order and jumps t
 - The script makes raw JSON socket requests to `pane.list` and `pane.focus`.
 - State is stored in `HERDR_PLUGIN_STATE_DIR/state.json` with `fcntl` file locking.
 - `CYCLE_TIMEOUT_SECONDS = 1.0` determines whether repeated `cycle` invocations continue through the same MRU order.
-- `focus-attention` jumps to the first `blocked`/`done` pane, prioritising `blocked` over `done`.
-- `cycle-attention` jumps to the next `blocked`/`done` pane after the current one, wrapping to the first.
+- `focus-attention` jumps to the first pane by `agent_status` priority: `blocked`, then `done`, then `idle`, then `working`.
+- `cycle-attention` jumps to the next pane in that same priority order after the current one, wrapping to the first.
 
 ## Loading the plugin
 

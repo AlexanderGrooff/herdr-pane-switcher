@@ -189,9 +189,7 @@ def cycle_panes(current_pane_id):
 
 def attention_panes():
     panes = [
-        pane
-        for pane in all_panes()
-        if pane.get("agent_status") in STATUS_PRIORITY
+        pane for pane in all_panes() if pane.get("agent_status") in STATUS_PRIORITY
     ]
     panes.sort(key=lambda pane: STATUS_PRIORITY[pane["agent_status"]])
     return panes
@@ -206,11 +204,7 @@ def focus_attention(next_pane=False):
         current = active_pane_id()
         if current:
             index = next(
-                (
-                    i
-                    for i, pane in enumerate(attention)
-                    if pane["pane_id"] == current
-                ),
+                (i for i, pane in enumerate(attention) if pane["pane_id"] == current),
                 None,
             )
             if index is not None and index + 1 < len(attention):

@@ -58,7 +58,7 @@ command = "herdr.mru-panes.focus-attention"
 description = "focus first attention pane"
 
 [[keys.command]]
-key = "prefix+ctrl+tab"
+key = "prefix+a"
 type = "plugin_action"
 command = "herdr.mru-panes.cycle-attention"
 description = "cycle attention panes"

@@ -4,7 +4,7 @@ This is a Herdr plugin that cycles panes in most-recently-used order and jumps t
 
 ## Files
 
-- `herdr-plugin.toml` — manifest declaring plugin id `alex.mru-tabs`, the `cycle`, `focus-attention`, and `cycle-attention` actions, plus `pane.focused`/`pane.closed` event hooks.
+- `herdr-plugin.toml` — manifest declaring plugin id `herdr.mru-panes`, the `cycle`, `focus-attention`, and `cycle-attention` actions, plus `pane.focused`/`pane.closed` event hooks.
 - `mru_tabs.py` — executable Python 3 script, run by Herdr, not directly by users. It uses only the standard library (`fcntl`, `json`, `os`, `socket`, `time`, `pathlib`).
 
 ## Runtime
@@ -20,8 +20,8 @@ This is a Herdr plugin that cycles panes in most-recently-used order and jumps t
 
 ```bash
 herdr plugin link /absolute/path/to/herdr-mru-cycle
-herdr plugin list --plugin alex.mru-tabs
-herdr plugin action list --plugin alex.mru-tabs
+herdr plugin list --plugin herdr.mru-panes
+herdr plugin action list --plugin herdr.mru-panes
 ```
 
 For end users installing from a published GitHub repo:
@@ -33,9 +33,9 @@ herdr plugin install <owner>/herdr-mru-cycle
 ## Development workflow
 
 1. Link the repo with `herdr plugin link /absolute/path/to/herdr-mru-cycle`.
-2. Edit `mru_tabs.py` and test immediately with `herdr plugin action invoke alex.mru-tabs.cycle`.
+2. Edit `mru_tabs.py` and test immediately with `herdr plugin action invoke herdr.mru-panes.cycle`.
 3. For manifest changes, unlink and re-link, or restart Herdr.
-4. Watch plugin logs with `herdr plugin log list --plugin alex.mru-tabs`.
+4. Watch plugin logs with `herdr plugin log list --plugin herdr.mru-panes`.
 
 When keybinding the actions for a regular user, add them to `~/.config/herdr/config.toml`.
 Prefix-mode is the safest default, because `ctrl+tab`/`ctrl+shift+tab` are
@@ -45,19 +45,19 @@ commonly owned by macOS, Ghostty, or other terminals and may never reach Herdr.
 [[keys.command]]
 key = "prefix+tab"
 type = "plugin_action"
-command = "alex.mru-tabs.cycle"
+command = "herdr.mru-panes.cycle"
 description = "cycle MRU panes"
 
 [[keys.command]]
 key = "prefix+shift+tab"
 type = "plugin_action"
-command = "alex.mru-tabs.focus-attention"
+command = "herdr.mru-panes.focus-attention"
 description = "focus first attention pane"
 
 [[keys.command]]
 key = "prefix+a"
 type = "plugin_action"
-command = "alex.mru-tabs.cycle-attention"
+command = "herdr.mru-panes.cycle-attention"
 description = "cycle attention panes"
 ```
 
@@ -70,19 +70,19 @@ used for single-modifier chords.
 [[keys.command]]
 key = "ctrl+alt+tab"
 type = "plugin_action"
-command = "alex.mru-tabs.cycle"
+command = "herdr.mru-panes.cycle"
 description = "cycle MRU panes"
 
 [[keys.command]]
 key = "ctrl+alt+a"
 type = "plugin_action"
-command = "alex.mru-tabs.focus-attention"
+command = "herdr.mru-panes.focus-attention"
 description = "focus first attention pane"
 
 [[keys.command]]
 key = "ctrl+alt+c"
 type = "plugin_action"
-command = "alex.mru-tabs.cycle-attention"
+command = "herdr.mru-panes.cycle-attention"
 description = "cycle attention panes"
 ```
 

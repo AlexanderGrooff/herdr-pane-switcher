@@ -13,9 +13,9 @@ A [Herdr](https://herdr.dev) plugin that cycles panes in most-recently-used orde
 The plugin registers three actions and event hooks on `pane.focused` and `pane.closed`.
 
 - On every focus/close event, the plugin updates the MRU history stored in `HERDR_PLUGIN_STATE_DIR`.
-- `alex.mru-tabs.cycle` focuses the next pane in MRU order.
-- `alex.mru-tabs.focus-attention` focuses the first pane by `agent_status` priority: `blocked`, then `done`, then `idle`, then `working`.
-- `alex.mru-tabs.cycle-attention` cycles to the next pane in that same priority order after the current one, wrapping to the first.
+- `herdr.mru-panes.cycle` focuses the next pane in MRU order.
+- `herdr.mru-panes.focus-attention` focuses the first pane by `agent_status` priority: `blocked`, then `done`, then `idle`, then `working`.
+- `herdr.mru-panes.cycle-attention` cycles to the next pane in that same priority order after the current one, wrapping to the first.
 - Repeated `cycle` invocations within `CYCLE_TIMEOUT_SECONDS` (1 second) continue cycling through the same MRU order instead of restarting.
 
 ## Loading the plugin
@@ -28,14 +28,14 @@ The plugin is loaded through Herdr's plugin registry. After loading, add a keybi
 git clone <repo-url> /path/to/herdr-mru-cycle
 herdr plugin link /path/to/herdr-mru-cycle
 herdr plugin list
-herdr plugin action list --plugin alex.mru-tabs
+herdr plugin action list --plugin herdr.mru-panes
 ```
 
 ### As a regular user from GitHub (if published)
 
 ```bash
 herdr plugin install <owner>/herdr-mru-cycle
-herdr plugin action list --plugin alex.mru-tabs
+herdr plugin action list --plugin herdr.mru-panes
 ```
 
 For non-interactive installation, add `--yes`.
@@ -48,19 +48,19 @@ Add entries to `~/.config/herdr/config.toml`:
 [[keys.command]]
 key = "prefix+tab"
 type = "plugin_action"
-command = "alex.mru-tabs.cycle"
+command = "herdr.mru-panes.cycle"
 description = "cycle MRU panes"
 
 [[keys.command]]
 key = "prefix+shift+tab"
 type = "plugin_action"
-command = "alex.mru-tabs.focus-attention"
+command = "herdr.mru-panes.focus-attention"
 description = "focus first attention pane"
 
 [[keys.command]]
 key = "prefix+ctrl+tab"
 type = "plugin_action"
-command = "alex.mru-tabs.cycle-attention"
+command = "herdr.mru-panes.cycle-attention"
 description = "cycle attention panes"
 ```
 
@@ -69,9 +69,9 @@ Then reload Herdr's config or restart Herdr.
 You can also invoke the actions manually:
 
 ```bash
-herdr plugin action invoke alex.mru-tabs.cycle
-herdr plugin action invoke alex.mru-tabs.focus-attention
-herdr plugin action invoke alex.mru-tabs.cycle-attention
+herdr plugin action invoke herdr.mru-panes.cycle
+herdr plugin action invoke herdr.mru-panes.focus-attention
+herdr plugin action invoke herdr.mru-panes.cycle-attention
 ```
 
 ## Development
@@ -93,19 +93,19 @@ herdr plugin action invoke alex.mru-tabs.cycle-attention
 4. Test by switching panes (to trigger events) or by invoking the action:
 
    ```bash
-   herdr plugin action invoke alex.mru-tabs.cycle
+   herdr plugin action invoke herdr.mru-panes.cycle
    ```
 
 5. Inspect logs:
 
    ```bash
-   herdr plugin log list --plugin alex.mru-tabs
+   herdr plugin log list --plugin herdr.mru-panes
    ```
 
 6. To remove the local link without deleting files:
 
    ```bash
-   herdr plugin unlink alex.mru-tabs
+   herdr plugin unlink herdr.mru-panes
    ```
 
 ## File layout

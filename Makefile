@@ -3,7 +3,7 @@
 reload: reload-plugin reload-config
 
 reload-plugin:
-	herdr plugin unlink alex.mru-tabs || true
+	herdr plugin unlink herdr.mru-panes || true
 	herdr plugin link $(CURDIR)
 
 reload-config:

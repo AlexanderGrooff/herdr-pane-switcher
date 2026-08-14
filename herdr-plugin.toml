@@ -1,0 +1,32 @@
+id = "alex.mru-tabs"
+name = "MRU Panes"
+version = "0.1.0"
+min_herdr_version = "0.7.0"
+description = "Cycle panes in MRU order and jump to panes that need attention"
+platforms = ["macos", "linux"]
+
+[[actions]]
+id = "cycle"
+title = "Cycle MRU panes"
+contexts = ["global", "workspace", "tab", "pane"]
+command = ["./mru_tabs.py"]
+
+[[actions]]
+id = "focus-attention"
+title = "Focus first attention pane"
+contexts = ["global", "workspace", "tab", "pane"]
+command = ["./mru_tabs.py"]
+
+[[actions]]
+id = "cycle-attention"
+title = "Cycle attention panes"
+contexts = ["global", "workspace", "tab", "pane"]
+command = ["./mru_tabs.py"]
+
+[[events]]
+on = "pane.focused"
+command = ["./mru_tabs.py"]
+
+[[events]]
+on = "pane.closed"
+command = ["./mru_tabs.py"]

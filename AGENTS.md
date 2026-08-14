@@ -37,7 +37,9 @@ herdr plugin install <owner>/herdr-mru-cycle
 3. For manifest changes, unlink and re-link, or restart Herdr.
 4. Watch plugin logs with `herdr plugin log list --plugin alex.mru-tabs`.
 
-When keybinding the actions for a regular user, add them to `~/.config/herdr/config.toml`:
+When keybinding the actions for a regular user, add them to `~/.config/herdr/config.toml`.
+Prefix-mode is the safest default, because `ctrl+tab`/`ctrl+shift+tab` are
+commonly owned by macOS, Ghostty, or other terminals and may never reach Herdr.
 
 ```toml
 [[keys.command]]
@@ -53,7 +55,32 @@ command = "alex.mru-tabs.focus-attention"
 description = "focus first attention pane"
 
 [[keys.command]]
-key = "prefix+ctrl+tab"
+key = "prefix+a"
+type = "plugin_action"
+command = "alex.mru-tabs.cycle-attention"
+description = "cycle attention panes"
+```
+
+If you prefer direct chords with no prefix, Herdr's documented safe modifier
+family is `ctrl+alt` (Control+Option on a Mac). On macOS with Ghostty and
+`macos-option-as-alt = true`, plain `alt` works as the same modifier and can be
+used for single-modifier chords.
+
+```toml
+[[keys.command]]
+key = "ctrl+alt+tab"
+type = "plugin_action"
+command = "alex.mru-tabs.cycle"
+description = "cycle MRU panes"
+
+[[keys.command]]
+key = "ctrl+alt+a"
+type = "plugin_action"
+command = "alex.mru-tabs.focus-attention"
+description = "focus first attention pane"
+
+[[keys.command]]
+key = "ctrl+alt+c"
 type = "plugin_action"
 command = "alex.mru-tabs.cycle-attention"
 description = "cycle attention panes"

@@ -1,4 +1,7 @@
-.PHONY: reload reload-plugin reload-config
+.PHONY: reload reload-plugin reload-config benchmark
+
+benchmark:
+	python3 benchmarks/run.py
 
 reload: reload-plugin reload-config
 

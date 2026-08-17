@@ -3,7 +3,7 @@
 reload: reload-plugin reload-config
 
 reload-plugin:
-	herdr plugin unlink herdr.mru-panes || true
+	herdr plugin unlink herdr.pane-switcher || true
 	herdr plugin link $(CURDIR)
 
 reload-config:

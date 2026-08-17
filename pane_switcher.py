@@ -41,7 +41,7 @@ def herdr_socket_path():
 
 
 def herdr_request(method, params):
-    request_id = f"plugin:mru-tabs:{method}:{time.time_ns()}"
+    request_id = f"plugin:pane-switcher:{method}:{time.time_ns()}"
     payload = {"id": request_id, "method": method, "params": params}
     sock_path = herdr_socket_path()
 

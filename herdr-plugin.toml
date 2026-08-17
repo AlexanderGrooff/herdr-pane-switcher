@@ -1,5 +1,5 @@
-id = "herdr.mru-panes"
-name = "MRU Panes"
+id = "herdr.pane-switcher"
+name = "Pane Switcher"
 version = "0.1.0"
 min_herdr_version = "0.7.0"
 description = "Cycle panes in MRU order and jump to panes that need attention"
@@ -9,24 +9,24 @@ platforms = ["macos", "linux"]
 id = "cycle"
 title = "Cycle MRU panes"
 contexts = ["global", "workspace", "tab", "pane"]
-command = ["./mru_tabs.py"]
+command = ["./pane_switcher.py"]
 
 [[actions]]
 id = "focus-attention"
 title = "Focus first attention pane"
 contexts = ["global", "workspace", "tab", "pane"]
-command = ["./mru_tabs.py"]
+command = ["./pane_switcher.py"]
 
 [[actions]]
 id = "cycle-attention"
 title = "Cycle attention panes"
 contexts = ["global", "workspace", "tab", "pane"]
-command = ["./mru_tabs.py"]
+command = ["./pane_switcher.py"]
 
 [[events]]
 on = "pane.focused"
-command = ["./mru_tabs.py"]
+command = ["./pane_switcher.py"]
 
 [[events]]
 on = "pane.closed"
-command = ["./mru_tabs.py"]
+command = ["./pane_switcher.py"]

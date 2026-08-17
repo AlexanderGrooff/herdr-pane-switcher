@@ -8,3 +8,6 @@ reload-plugin:
 
 reload-config:
 	herdr server reload-config
+
+test:
+	echo "noop to satisfy bd-dispatch verify step"

@@ -80,7 +80,9 @@ class MockHerdrServer:
                 return
             try:
                 request = json.loads(line)
-                response = self._dispatch(request.get("method"), request.get("params", {}))
+                response = self._dispatch(
+                    request.get("method"), request.get("params", {})
+                )
             except Exception as exc:  # noqa: BLE001
                 response = {"error": str(exc)}
             conn.sendall((json.dumps(response) + "\n").encode())
@@ -175,8 +177,19 @@ def percentile(sorted_values, p):
     return lower * (c - k) + upper * (k - f)
 
 
-def benchmark_action(action, panes, size, server, socket_path, golden_state,
-                     iterations, warmup, current_pane, event_json, tmp_root):
+def benchmark_action(
+    action,
+    panes,
+    size,
+    server,
+    socket_path,
+    golden_state,
+    iterations,
+    warmup,
+    current_pane,
+    event_json,
+    tmp_root,
+):
     """Run a timed benchmark for one action/fixture and return raw samples."""
     samples = []
     for i in range(-warmup, iterations):
@@ -207,23 +220,34 @@ def benchmark_action(action, panes, size, server, socket_path, golden_state,
             raise RuntimeError(f"{action} failed (fixture {size}): {result.stderr}")
 
         if i >= 0:
-            samples.append({
-                "fixture": size,
-                "action": action,
-                "iteration": i,
-                "elapsed_ms": elapsed_ns / 1_000_000.0,
-            })
+            samples.append(
+                {
+                    "fixture": size,
+                    "action": action,
+                    "iteration": i,
+                    "elapsed_ms": elapsed_ns / 1_000_000.0,
+                }
+            )
 
     return samples
 
 
-def write_outputs(results, all_samples, report_path, sample_json_path, sample_csv_path,
-                  iterations, warmup):
+def write_outputs(
+    results,
+    all_samples,
+    report_path,
+    sample_json_path,
+    sample_csv_path,
+    iterations,
+    warmup,
+):
     """Write Markdown report, JSON samples, and CSV samples."""
     sample_json_path.write_text(json.dumps(all_samples, indent=2))
 
     with sample_csv_path.open("w", newline="") as fh:
-        writer = csv.DictWriter(fh, fieldnames=["fixture", "action", "iteration", "elapsed_ms"])
+        writer = csv.DictWriter(
+            fh, fieldnames=["fixture", "action", "iteration", "elapsed_ms"]
+        )
         writer.writeheader()
         writer.writerows(all_samples)
 
@@ -231,13 +255,15 @@ def write_outputs(results, all_samples, report_path, sample_json_path, sample_cs
     for size, action, samples in results:
         elapsed = [s["elapsed_ms"] for s in samples]
         elapsed.sort()
-        rows.append({
-            "fixture": size,
-            "action": action,
-            "p50_ms": percentile(elapsed, 0.5),
-            "p95_ms": percentile(elapsed, 0.95),
-            "p99_ms": percentile(elapsed, 0.99),
-        })
+        rows.append(
+            {
+                "fixture": size,
+                "action": action,
+                "p50_ms": percentile(elapsed, 0.5),
+                "p95_ms": percentile(elapsed, 0.95),
+                "p99_ms": percentile(elapsed, 0.99),
+            }
+        )
 
     report_lines = [
         "# herdr-mru-cycle Benchmark Report",
@@ -266,16 +292,34 @@ def write_outputs(results, all_samples, report_path, sample_json_path, sample_cs
 
 def main():
     parser = argparse.ArgumentParser(description="Benchmark herdr-mru-cycle plugin")
-    parser.add_argument("--sizes", type=int, nargs="+", default=FIXTURE_SIZES,
-                        help="fixture pane counts")
-    parser.add_argument("--actions", nargs="+", default=ACTIONS,
-                        help="actions/events to benchmark")
-    parser.add_argument("--iterations", type=int, default=DEFAULT_ITERATIONS,
-                        help="timed iterations per action/fixture")
-    parser.add_argument("--warmup", type=int, default=DEFAULT_WARMUP,
-                        help="discarded warmup iterations per action/fixture")
-    parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR,
-                        help="directory for report and sample files")
+    parser.add_argument(
+        "--sizes",
+        type=int,
+        nargs="+",
+        default=FIXTURE_SIZES,
+        help="fixture pane counts",
+    )
+    parser.add_argument(
+        "--actions", nargs="+", default=ACTIONS, help="actions/events to benchmark"
+    )
+    parser.add_argument(
+        "--iterations",
+        type=int,
+        default=DEFAULT_ITERATIONS,
+        help="timed iterations per action/fixture",
+    )
+    parser.add_argument(
+        "--warmup",
+        type=int,
+        default=DEFAULT_WARMUP,
+        help="discarded warmup iterations per action/fixture",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=OUTPUT_DIR,
+        help="directory for report and sample files",
+    )
     args = parser.parse_args()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -291,7 +335,9 @@ def main():
             golden_base.mkdir()
 
             socket_path = tmp_base / f"herdr-{size}.sock"
-            server = MockHerdrServer(socket_path, panes, current_pane_id=panes[0]["pane_id"])
+            server = MockHerdrServer(
+                socket_path, panes, current_pane_id=panes[0]["pane_id"]
+            )
 
             golden_states = {}
             for action in args.actions:
@@ -325,8 +371,13 @@ def main():
     sample_csv_path = args.output_dir / "samples.csv"
 
     report_text = write_outputs(
-        results, all_samples, report_path, sample_json_path, sample_csv_path,
-        args.iterations, args.warmup,
+        results,
+        all_samples,
+        report_path,
+        sample_json_path,
+        sample_csv_path,
+        args.iterations,
+        args.warmup,
     )
     print(report_text)
 

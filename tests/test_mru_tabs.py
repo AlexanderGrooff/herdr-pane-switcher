@@ -70,7 +70,9 @@ class MockHerdrServer:
                 return
             try:
                 request = json.loads(line)
-                response = self._dispatch(request.get("method"), request.get("params", {}))
+                response = self._dispatch(
+                    request.get("method"), request.get("params", {})
+                )
             except Exception as exc:  # noqa: BLE001
                 response = {"error": str(exc)}
             conn.sendall((json.dumps(response) + "\n").encode())
@@ -134,7 +136,9 @@ class TestMruFunctional(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.socket_path = Path(self.tmp.name) / "herdr.sock"
         self.state_dir = Path(self.tmp.name) / "state"
-        self.server = MockHerdrServer(self.socket_path, FIXTURE, current_pane_id=FIXTURE[0]["pane_id"])
+        self.server = MockHerdrServer(
+            self.socket_path, FIXTURE, current_pane_id=FIXTURE[0]["pane_id"]
+        )
 
     def tearDown(self):
         self.server.stop()
@@ -202,8 +206,14 @@ class TestMruFunctional(unittest.TestCase):
         state = self._read_state()
 
         self.assertEqual(focused, "pane-0002")
-        self.assertEqual(state["history"], ["pane-0002", "pane-0000", "pane-0001", "pane-0003", "pane-0004"])
-        self.assertEqual(state["cycle"]["order"], ["pane-0000", "pane-0002", "pane-0001", "pane-0003", "pane-0004"])
+        self.assertEqual(
+            state["history"],
+            ["pane-0002", "pane-0000", "pane-0001", "pane-0003", "pane-0004"],
+        )
+        self.assertEqual(
+            state["cycle"]["order"],
+            ["pane-0000", "pane-0002", "pane-0001", "pane-0003", "pane-0004"],
+        )
         self.assertEqual(state["cycle"]["index"], 1)
         self.assertEqual(state["cycle"]["target"], "pane-0002")
 
@@ -274,10 +284,18 @@ class TestMruFunctional(unittest.TestCase):
 
     def test_pane_closed_removes_from_history_and_resets_cycle(self):
         # Pre-populate state as if the user had cycled through several panes.
-        self._write_state(json.dumps({
-            "history": ["pane-0003", "pane-0002", "pane-0001", "pane-0000"],
-            "cycle": {"order": ["pane-0003", "pane-0002", "pane-0001", "pane-0000"], "index": 1, "target": "pane-0002"},
-        }))
+        self._write_state(
+            json.dumps(
+                {
+                    "history": ["pane-0003", "pane-0002", "pane-0001", "pane-0000"],
+                    "cycle": {
+                        "order": ["pane-0003", "pane-0002", "pane-0001", "pane-0000"],
+                        "index": 1,
+                        "target": "pane-0002",
+                    },
+                }
+            )
+        )
 
         self._run_action("pane.closed", event_json={"pane_id": "pane-0001"})
         state = self._read_state()
@@ -317,7 +335,9 @@ class TestProcessInvocation(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.socket_path = Path(self.tmp.name) / "herdr.sock"
         self.state_dir = Path(self.tmp.name) / "state"
-        self.server = MockHerdrServer(self.socket_path, FIXTURE, current_pane_id=FIXTURE[0]["pane_id"])
+        self.server = MockHerdrServer(
+            self.socket_path, FIXTURE, current_pane_id=FIXTURE[0]["pane_id"]
+        )
 
     def tearDown(self):
         self.server.stop()

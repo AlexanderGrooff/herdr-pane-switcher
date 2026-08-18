@@ -3,7 +3,8 @@
 test:
 	@set -e; \
 	if command -v ruff >/dev/null 2>&1; then ruff check .; fi; \
-	python3 -m py_compile mru_tabs.py benchmarks/run.py; \
+	python3 -m py_compile mru_tabs.py benchmarks/run.py tests/test_mru_tabs.py; \
+	python3 -m unittest discover tests; \
 	TMP=$$(mktemp -d); \
 	trap 'rm -rf "$$TMP"' EXIT; \
 	python3 benchmarks/run.py --sizes 5 50 500 --iterations 1 --warmup 0 --output-dir "$$TMP"; \

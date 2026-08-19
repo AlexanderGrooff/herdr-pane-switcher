@@ -10,7 +10,7 @@ build:
 	cp $(CARGO_TARGET) $(BIN_TARGET)
 	chmod +x $(BIN_TARGET)
 
-test:
+test: build
 	cargo fmt --check
 	cargo clippy -- -D warnings
 	cargo test

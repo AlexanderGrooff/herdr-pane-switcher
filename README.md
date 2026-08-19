@@ -4,19 +4,22 @@ A [Herdr](https://herdr.dev) plugin that cycles panes in most-recently-used orde
 
 ## Requirements
 
-- Herdr >= 0.7.0
-- Python 3
-- macOS or Linux (uses `fcntl` and Unix-domain sockets)
+- Herdr >= 0.7.5
+- macOS or Linux (uses Unix-domain sockets and file locking)
+- A Rust toolchain is required to build the plugin from source
+- Python 3 is only needed for running the benchmark/golden-test harness locally
 
 ## How it works
 
-The plugin registers three actions and event hooks on `pane.focused` and `pane.closed`.
+The plugin is a single Rust binary (`bin/herdr-mru-cycle`) that is executed by Herdr for each action and event.
 
-- On every focus/close event, the plugin updates the MRU history stored in `HERDR_PLUGIN_STATE_DIR`.
+- On every `pane.focused`/`pane.closed` event, the plugin updates the MRU history stored in `HERDR_PLUGIN_STATE_DIR`.
 - `herdr.pane-switcher.cycle` focuses the next pane in MRU order.
 - `herdr.pane-switcher.focus-attention` focuses the first pane by `agent_status` priority: `blocked`, then `done`, then `idle`, then `working`.
 - `herdr.pane-switcher.cycle-attention` cycles to the next pane in that same priority order after the current one, wrapping to the first.
-- Repeated `cycle` invocations within `CYCLE_TIMEOUT_SECONDS` (1 second) continue cycling through the same MRU order instead of restarting.
+- Repeated `cycle` invocations within the 1-second timeout continue cycling through the same MRU order instead of restarting.
+
+State is stored in `HERDR_PLUGIN_STATE_DIR/state.bin` with advisory file locking so multiple concurrent invocations are safe.
 
 ## Loading the plugin
 
@@ -26,6 +29,8 @@ The plugin is loaded through Herdr's plugin registry. After loading, add a keybi
 
 ```bash
 git clone <repo-url> /path/to/herdr-pane-switcher
+cd /path/to/herdr-pane-switcher
+make build
 herdr plugin link /path/to/herdr-pane-switcher
 herdr plugin list
 herdr plugin action list --plugin herdr.pane-switcher
@@ -76,39 +81,66 @@ herdr plugin action invoke herdr.pane-switcher.cycle-attention
 
 ## Development
 
-1. Link the working directory once:
+The Makefile runs the Rust toolchain, unit tests, Python golden tests, and a micro-benchmark:
 
-   ```bash
-   herdr plugin link /path/to/herdr-pane-switcher
-   ```
+```bash
+make build       # cargo build --release + copy binary to bin/
+make test        # fmt, clippy, cargo test, golden tests, benchmark sanity
+```
 
-2. Make sure `pane_switcher.py` is executable:
+Link the built plugin once:
 
-   ```bash
-   chmod +x pane_switcher.py
-   ```
+```bash
+herdr plugin link /path/to/herdr-pane-switcher
+herdr plugin list
+herdr plugin action list --plugin herdr.pane-switcher
+```
 
-3. Edit `pane_switcher.py` or `herdr-plugin.toml`. The script is executed fresh for each action/event, so Python changes take effect immediately. Changes to the manifest usually require restarting Herdr or re-linking the plugin.
+Then edit `src/main.rs` and re-run `make build` (or `make install-local`) to update the binary. The Rust binary is executed fresh for each action/event, so changes take effect immediately after rebuilding.
 
-4. Test by switching panes (to trigger events) or by invoking the action:
+For manifest changes, unlink and re-link the plugin, or restart Herdr:
 
-   ```bash
-   herdr plugin action invoke herdr.pane-switcher.cycle
-   ```
+```bash
+herdr plugin unlink herdr.pane-switcher
+make install-local
+herdr plugin link /path/to/herdr-pane-switcher
+herdr server reload-config
+```
 
-5. Inspect logs:
+Or use the convenience target:
 
-   ```bash
-   herdr plugin log list --plugin herdr.pane-switcher
-   ```
+```bash
+make reload
+```
 
-6. To remove the local link without deleting files:
+Inspect logs:
 
-   ```bash
-   herdr plugin unlink herdr.pane-switcher
-   ```
+```bash
+herdr plugin log list --plugin herdr.pane-switcher
+```
+
+To remove the local link without deleting files:
+
+```bash
+herdr plugin unlink herdr.pane-switcher
+```
+
+### Benchmarking
+
+Run a side-by-side comparison against the Python baseline:
+
+```bash
+make benchmark
+```
+
+This writes `benchmarks/output/report.md`, `benchmarks/output/samples.json`, and `benchmarks/output/samples.csv`.
 
 ## File layout
 
 - `herdr-plugin.toml` — plugin manifest
-- `pane_switcher.py` — executable Python script that talks to Herdr over its Unix socket
+- `src/main.rs` — Rust implementation of the plugin binary
+- `benchmarks/baseline.py` — reference Python implementation used for golden tests and benchmarks
+- `benchmarks/run.py` — benchmark harness
+- `helpers/mock_herdr_server.py` — mock Unix socket server used by golden tests and benchmarks
+- `tests/test_golden.py` — equivalence tests between Python and Rust implementations
+- `tests/test_manifest.py` — static checks for plugin manifest and layout

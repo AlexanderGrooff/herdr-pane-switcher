@@ -150,7 +150,10 @@ def cycle_panes(current_pane_id):
     if len(panes) < 2:
         return
 
-    now = time.monotonic()
+    # Use wall-clock time so cycle state is comparable across separate
+    # process invocations. time.monotonic() can reset per process on some
+    # platforms, which breaks the cycle continuation timeout.
+    now = time.time()
     with locked_state() as state:
         history = [pane_id for pane_id in state["history"] if pane_id in panes]
         history = promote(history, current_pane_id)

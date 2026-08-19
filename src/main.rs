@@ -15,6 +15,28 @@ mod herdr {
         pub title: Option<String>,
     }
 
+    #[derive(Debug, Deserialize)]
+    struct PaneListEnvelope {
+        #[serde(default)]
+        result: Option<PaneListResult>,
+        #[serde(default)]
+        panes: Option<Vec<Pane>>,
+        #[serde(default)]
+        error: Option<String>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct PaneListResult {
+        #[serde(default)]
+        panes: Option<Vec<Pane>>,
+    }
+
+    #[derive(Debug, Deserialize, Default)]
+    struct ErrorOnly {
+        #[serde(default)]
+        error: Option<String>,
+    }
+
     fn request_id(method: &str) -> String {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -63,7 +85,7 @@ mod herdr {
         value.and_then(truthy_string)
     }
 
-    pub fn herdr_request(method: &str, params: Value) -> Result<Value> {
+    fn herdr_request_raw(method: &str, params: Value) -> Result<String> {
         let socket_path = crate::env::herdr_socket_path()?;
         let payload = serde_json::json!({
             "id": request_id(method),
@@ -101,30 +123,29 @@ mod herdr {
             bail!("no response from herdr for {}", method);
         }
 
-        let data: Value = serde_json::from_str(&response).with_context(|| {
-            format!(
-                "invalid response from herdr for {}: {}",
-                method,
-                response.trim()
-            )
-        })?;
+        Ok(response)
+    }
 
-        if let Some(err) = data.get("error").and_then(Value::as_str) {
-            bail!("herdr {} failed: {}", method, err);
+    fn check_error(response: &str) -> Result<()> {
+        let err: ErrorOnly = serde_json::from_str(response)
+            .with_context(|| format!("invalid response from herdr: {}", response.trim()))?;
+        if let Some(e) = err.error {
+            bail!("herdr failed: {}", e);
         }
-
-        // Return the response payload.  Callers use nested_value to pull out
-        // the fields they care about, so we work with both the mock server's
-        // "result" wrapper and Herdr's tagged response shapes.
-        Ok(data)
+        Ok(())
     }
 
     pub fn all_panes() -> Result<Vec<Pane>> {
-        let data = herdr_request("pane.list", serde_json::json!({}))?;
-        let panes = nested_value(&data, "panes")
-            .cloned()
-            .unwrap_or_else(|| Value::Array(Vec::new()));
-        serde_json::from_value(panes).context("invalid pane list")
+        let response = herdr_request_raw("pane.list", serde_json::json!({}))?;
+        let parsed: PaneListEnvelope = serde_json::from_str(&response)
+            .with_context(|| format!("invalid pane.list response: {}", response.trim()))?;
+        if let Some(err) = parsed.error {
+            bail!("herdr pane.list failed: {}", err);
+        }
+        Ok(parsed
+            .panes
+            .or(parsed.result.and_then(|r| r.panes))
+            .unwrap_or_default())
     }
 
     pub fn all_pane_ids() -> Result<Vec<String>> {
@@ -132,12 +153,17 @@ mod herdr {
     }
 
     pub fn focus_pane(pane_id: &str) -> Result<()> {
-        herdr_request("pane.focus", serde_json::json!({"pane_id": pane_id}))?;
-        Ok(())
+        let response = herdr_request_raw("pane.focus", serde_json::json!({"pane_id": pane_id}))?;
+        check_error(&response)
     }
 
     pub fn current_pane() -> Result<Option<String>> {
-        let data = herdr_request("pane.current", serde_json::json!({}))?;
+        let response = herdr_request_raw("pane.current", serde_json::json!({}))?;
+        let data: Value = serde_json::from_str(&response)
+            .with_context(|| format!("invalid pane.current response: {}", response.trim()))?;
+        if let Some(err) = data.get("error").and_then(Value::as_str) {
+            bail!("herdr pane.current failed: {}", err);
+        }
         Ok(as_string(nested_value(&data, "pane_id")))
     }
 }
@@ -154,7 +180,7 @@ mod state {
     /// current registry mirror, so we use a tiny tagged little-endian format
     /// that is still versioned and stable.
     const MAGIC: &[u8] = b"HMSC";
-    const CURRENT_VERSION: u32 = 1;
+    const CURRENT_VERSION: u32 = 2;
     const STATE_FILE: &str = "state.bin";
     const STATE_TMP_FILE: &str = "state.bin.tmp";
 
@@ -219,7 +245,6 @@ mod state {
 
     #[derive(Debug, Clone, PartialEq)]
     pub struct Cycle {
-        pub order: Vec<String>,
         pub index: usize,
         pub target: String,
         pub last_at: f64,
@@ -248,10 +273,6 @@ mod state {
         }
         if let Some(cycle) = &state.cycle {
             write_u8(&mut buf, 1);
-            write_u32(&mut buf, cycle.order.len() as u32);
-            for pane in &cycle.order {
-                write_string(&mut buf, pane);
-            }
             write_u32(&mut buf, cycle.index as u32);
             write_string(&mut buf, &cycle.target);
             buf.extend_from_slice(&cycle.last_at.to_le_bytes());
@@ -315,16 +336,10 @@ mod state {
         }
         let has_cycle = read_u8(buf, &mut pos)?;
         let cycle = if has_cycle != 0 {
-            let order_len = read_u32(buf, &mut pos)? as usize;
-            let mut order = Vec::with_capacity(order_len.min(1_000_000));
-            for _ in 0..order_len {
-                order.push(read_string(buf, &mut pos)?);
-            }
             let index = read_u32(buf, &mut pos)? as usize;
             let target = read_string(buf, &mut pos)?;
             let last_at = read_f64(buf, &mut pos)?;
             Some(Cycle {
-                order,
                 index,
                 target,
                 last_at,
@@ -373,8 +388,6 @@ mod state {
             let bytes = to_bytes(&state);
             tmp.write_all(&bytes)
                 .context("failed to write temporary state file")?;
-            tmp.sync_all()
-                .context("failed to sync temporary state file")?;
         }
         rename(&tmp_path, &state_path).context("failed to replace state file")?;
 
@@ -604,9 +617,9 @@ mod actions {
             .collect();
         history = promote(&history, current_pane);
 
-        let seen: std::collections::HashSet<_> = history.iter().cloned().collect();
+        let known: std::collections::HashSet<_> = history.iter().cloned().collect();
         for pane in panes {
-            if !seen.contains(pane) {
+            if !known.contains(pane) {
                 history.push(pane.clone());
             }
         }
@@ -615,17 +628,17 @@ mod actions {
             let elapsed = now - cycle.last_at;
             (0.0..=CYCLE_TIMEOUT_SECONDS).contains(&elapsed)
                 && cycle.target == current_pane
-                && cycle.order.iter().all(|p| panes.contains(p))
+                && panes.iter().all(|p| known.contains(p))
         } else {
             false
         };
 
-        let (order, index) = if continuing {
+        let order = history.clone();
+        let index = if continuing {
             let cycle = state.cycle.as_ref().unwrap();
-            let index = (cycle.index + 1) % cycle.order.len();
-            (cycle.order.clone(), index)
+            (cycle.index + 1) % order.len()
         } else {
-            (history.clone(), 1)
+            1
         };
 
         let target = order
@@ -635,7 +648,6 @@ mod actions {
 
         state.history = promote(&history, &target);
         state.cycle = Some(Cycle {
-            order,
             index,
             target: target.clone(),
             last_at: now,
@@ -811,7 +823,7 @@ mod tests {
 
     fn make_state(history: Vec<String>, cycle: Option<state::Cycle>) -> state::State {
         state::State {
-            version: 1,
+            version: 2,
             history,
             cycle,
         }
@@ -834,7 +846,6 @@ mod tests {
         let cycle = state.cycle.as_ref().unwrap();
         assert_eq!(cycle.index, 1);
         assert_eq!(cycle.target, "b");
-        assert_eq!(cycle.order, vec!["a", "b", "c"]);
     }
 
     #[test]
@@ -855,6 +866,7 @@ mod tests {
         assert_eq!(focused, vec!["c"]);
         assert_eq!(state.cycle.as_ref().unwrap().index, 2);
         assert_eq!(state.cycle.as_ref().unwrap().target, "c");
+        assert_eq!(state.history, vec!["c", "b", "a"]);
     }
 
     #[test]
@@ -929,27 +941,31 @@ mod tests {
 
     #[test]
     fn cycle_target_equals_current_skips_focus() {
-        // Construct a stale cycle whose only pane is the current pane.
-        let panes = vec!["a".to_string(), "b".to_string()];
+        // When the next pane in the MRU order wraps around to the current pane,
+        // no pane.focus call should be emitted.
+        let panes = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        // previous cycle: order [a, b, c] with target c at index 2.
+        // After the cycle, state.history is [c, a, b].
         let mut state = make_state(
-            vec![],
+            vec!["c".to_string(), "a".to_string(), "b".to_string()],
             Some(state::Cycle {
-                order: vec!["a".to_string()],
-                index: 0,
-                target: "a".to_string(),
+                index: 2,
+                target: "c".to_string(),
                 last_at: 0.0,
             }),
         );
         let mut focused = false;
 
-        actions::cycle_panes_logic("a", &panes, &mut state, 0.2, |_t| {
+        // current pane is c; next index (2 + 1) % 3 = 0 wraps to c itself.
+        actions::cycle_panes_logic("c", &panes, &mut state, 0.2, |_t| {
             focused = true;
             Ok(())
         })
         .unwrap();
 
         assert!(!focused);
-        assert_eq!(state.cycle.as_ref().unwrap().target, "a");
+        assert_eq!(state.cycle.as_ref().unwrap().target, "c");
+        assert_eq!(state.cycle.as_ref().unwrap().index, 0);
     }
 
     #[test]
@@ -963,7 +979,6 @@ mod tests {
         state::with_state(&tmp, |s| {
             s.history = vec!["a".to_string(), "b".to_string()];
             s.cycle = Some(state::Cycle {
-                order: vec!["a".to_string(), "b".to_string()],
                 index: 1,
                 target: "b".to_string(),
                 last_at: 1.0,
@@ -974,7 +989,7 @@ mod tests {
 
         state::with_state(&tmp, |s| {
             assert_eq!(s.history, vec!["a", "b"]);
-            assert_eq!(s.version, 1);
+            assert_eq!(s.version, 2);
             assert!(s.cycle.is_some());
             Ok(())
         })

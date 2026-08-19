@@ -12,15 +12,15 @@ build:
 
 test:
 	cargo fmt --check
-	cargo clippy
+	cargo clippy -- -D warnings
 	cargo test
 	@set -e; \
 	if command -v ruff >/dev/null 2>&1; then ruff check .; fi; \
-	python3 -m py_compile pane_switcher.py benchmarks/run.py tests/test_pane_switcher.py; \
+	python3 -m py_compile benchmarks/baseline.py benchmarks/run.py tests/test_golden.py tests/test_manifest.py; \
 	python3 -m unittest discover tests; \
 	TMP=$$(mktemp -d); \
 	trap 'rm -rf "$$TMP"' EXIT; \
-	python3 benchmarks/run.py --sizes 5 50 500 --iterations 1 --warmup 0 --output-dir "$$TMP"; \
+	python3 benchmarks/run.py --impl rust --sizes 5 50 500 --iterations 1 --warmup 0 --output-dir "$$TMP"; \
 	test -f "$$TMP/report.md"; \
 	test -f "$$TMP/samples.json"; \
 	test -f "$$TMP/samples.csv"; \
@@ -28,7 +28,7 @@ test:
 	grep -q '| 50 | focus-attention ' "$$TMP/report.md"; \
 	grep -q '| 500 | pane.closed ' "$$TMP/report.md"
 
-benchmark:
+benchmark: build
 	python3 benchmarks/run.py
 
 install-local: build

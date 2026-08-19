@@ -14,6 +14,8 @@ class MockHerdrServer:
         self.socket_path = Path(socket_path)
         self.panes = panes
         self.current_pane_id = current_pane_id
+        self.focus_calls = []
+        self.requests = []
         self._shutdown = threading.Event()
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         if self.socket_path.exists():
@@ -49,12 +51,14 @@ class MockHerdrServer:
             conn.sendall((json.dumps(response) + "\n").encode())
 
     def _dispatch(self, method, params):
+        self.requests.append((method, params))
         if method == "pane.list":
             return {"result": {"panes": self.panes}}
         if method == "pane.focus":
             pane_id = params.get("pane_id")
             if pane_id:
                 self.current_pane_id = pane_id
+                self.focus_calls.append(pane_id)
             return {"result": "ok"}
         if method == "pane.current":
             return {"result": {"pane_id": self.current_pane_id}}

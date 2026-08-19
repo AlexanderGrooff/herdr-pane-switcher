@@ -1,0 +1,93 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-apple-darwin
+            os: macos-13
+            cross: false
+          - target: aarch64-apple-darwin
+            os: macos-14
+            cross: false
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            cross: true
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            cross: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross
+        if: matrix.cross
+        uses: taiki-e/install-action@cross
+
+      - name: Build release binary
+        run: |
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            cross build --release --locked --target ${{ matrix.target }}
+          else
+            cargo build --release --locked --target ${{ matrix.target }}
+          fi
+
+      - name: Package binary
+        run: |
+          asset="herdr-mru-cycle-${{ matrix.target }}.tar.gz"
+          mkdir -p dist
+          tar czf "dist/${asset}" -C "target/${{ matrix.target }}/release" herdr-mru-cycle
+          python3 - <<'PY'
+          import hashlib, pathlib, sys
+          path = pathlib.Path("dist") / sys.argv[1]
+          digest = hashlib.sha256(path.read_bytes()).hexdigest()
+          (path.with_suffix(path.suffix + ".sha256")).write_text(f"{digest}  {path.name}\n")
+          PY
+          "${asset}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: herdr-mru-cycle-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List release assets
+        run: ls -la dist
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*

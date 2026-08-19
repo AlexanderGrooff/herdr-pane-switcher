@@ -61,11 +61,17 @@ class TestManifestAndRename(unittest.TestCase):
         self.assertIsNotNone(match, "plugin id not found in herdr-plugin.toml")
         self.assertEqual(match.group(1), "herdr.pane-switcher")
 
-    def test_all_commands_point_to_pane_switcher(self):
+    def test_all_plugin_commands_use_rust_binary(self):
         text = (REPO_ROOT / "herdr-plugin.toml").read_text()
+        current_section = None
         for line in text.splitlines():
-            if line.strip().startswith("command"):
-                self.assertIn('"./pane_switcher.py"', line, line)
+            header = re.match(r"^\[\[(\w+)\]\]", line)
+            if header:
+                current_section = header.group(1)
+                continue
+            if current_section in ("actions", "events") and line.strip().startswith("command"):
+                self.assertNotIn("pane_switcher.py", line, line)
+                self.assertIn("herdr-mru-cycle", line, line)
 
     def test_request_id_prefix_is_pane_switcher(self):
         source = (REPO_ROOT / "pane_switcher.py").read_text()

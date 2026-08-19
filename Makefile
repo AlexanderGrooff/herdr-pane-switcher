@@ -1,6 +1,19 @@
-.PHONY: test reload reload-plugin reload-config benchmark
+.PHONY: build test benchmark install-local reload reload-plugin reload-config
+
+BINARY = herdr-mru-cycle
+CARGO_TARGET = target/release/$(BINARY)
+BIN_TARGET = bin/$(BINARY)
+
+build:
+	cargo build --release
+	mkdir -p bin
+	cp $(CARGO_TARGET) $(BIN_TARGET)
+	chmod +x $(BIN_TARGET)
 
 test:
+	cargo fmt --check
+	cargo clippy
+	cargo test
 	@set -e; \
 	if command -v ruff >/dev/null 2>&1; then ruff check .; fi; \
 	python3 -m py_compile pane_switcher.py benchmarks/run.py tests/test_pane_switcher.py; \
@@ -18,9 +31,11 @@ test:
 benchmark:
 	python3 benchmarks/run.py
 
+install-local: build
+
 reload: reload-plugin reload-config
 
-reload-plugin:
+reload-plugin: install-local
 	herdr plugin unlink herdr.pane-switcher || true
 	herdr plugin link $(CURDIR)
 

@@ -3,7 +3,7 @@
 test:
 	@set -e; \
 	if command -v ruff >/dev/null 2>&1; then ruff check .; fi; \
-	python3 -m py_compile mru_tabs.py benchmarks/run.py tests/test_mru_tabs.py; \
+	python3 -m py_compile pane_switcher.py benchmarks/run.py tests/test_pane_switcher.py; \
 	python3 -m unittest discover tests; \
 	TMP=$$(mktemp -d); \
 	trap 'rm -rf "$$TMP"' EXIT; \
@@ -26,6 +26,3 @@ reload-plugin:
 
 reload-config:
 	herdr server reload-config
-
-test:
-	echo "noop to satisfy bd-dispatch verify step"

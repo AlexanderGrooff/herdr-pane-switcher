@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Functional correctness tests for the herdr.mru-panes plugin.
+"""Functional correctness tests for the herdr.pane-switcher plugin.
 
-The tests drive the real mru_tabs.py entry point against a local mock Herdr
+The tests drive the real pane_switcher.py entry point against a local mock Herdr
 Unix socket server and isolated state directories. They verify observable
 behavior at the public seams: focused pane, state.json contents, MRU cycle
 order, attention priority, timeout continuation, and error/edge paths.
@@ -18,10 +18,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-MRU_TABS = REPO_ROOT / "mru_tabs.py"
+MRU_TABS = REPO_ROOT / "pane_switcher.py"
 sys.path.insert(0, str(REPO_ROOT))
 
-import mru_tabs  # noqa: E402
+import pane_switcher  # noqa: E402
 from tests.mock_herdr_server import MockHerdrServer as BaseMockHerdrServer  # noqa: E402
 
 FIXTURE = [
@@ -55,21 +55,21 @@ class MockHerdrServer(BaseMockHerdrServer):
 class TestManifestAndRename(unittest.TestCase):
     """Static checks that the manifest and script match the expected rename."""
 
-    def test_plugin_id_is_herdr_mru_panes(self):
+    def test_plugin_id_is_herdr_pane_switcher(self):
         text = (REPO_ROOT / "herdr-plugin.toml").read_text()
         match = re.search(r'^id\s*=\s*"([^"]+)"', text, re.MULTILINE)
         self.assertIsNotNone(match, "plugin id not found in herdr-plugin.toml")
-        self.assertEqual(match.group(1), "herdr.mru-panes")
+        self.assertEqual(match.group(1), "herdr.pane-switcher")
 
-    def test_all_commands_point_to_mru_tabs(self):
+    def test_all_commands_point_to_pane_switcher(self):
         text = (REPO_ROOT / "herdr-plugin.toml").read_text()
         for line in text.splitlines():
             if line.strip().startswith("command"):
-                self.assertIn('"./mru_tabs.py"', line, line)
+                self.assertIn('"./pane_switcher.py"', line, line)
 
-    def test_request_id_prefix_is_mru_tabs(self):
-        source = (REPO_ROOT / "mru_tabs.py").read_text()
-        self.assertIn('f"plugin:mru-tabs:{method}:{time.time_ns()}"', source)
+    def test_request_id_prefix_is_pane_switcher(self):
+        source = (REPO_ROOT / "pane_switcher.py").read_text()
+        self.assertIn('f"plugin:pane-switcher:{method}:{time.time_ns()}"', source)
 
 
 class TestMruFunctional(unittest.TestCase):
@@ -106,7 +106,7 @@ class TestMruFunctional(unittest.TestCase):
         (self.state_dir / "state.json").write_text(raw)
 
     def _run_action(self, action, pane_id=None, event_json=None, env_extra=None):
-        """Run mru_tabs.main with the supplied Herdr-style environment."""
+        """Run pane_switcher.main with the supplied Herdr-style environment."""
         env = self._env()
         if action in ("pane.focused", "pane.closed"):
             env["HERDR_PLUGIN_EVENT"] = action
@@ -118,7 +118,7 @@ class TestMruFunctional(unittest.TestCase):
         if env_extra:
             env.update(env_extra)
         with patch.dict("os.environ", env, clear=True):
-            mru_tabs.main()
+            pane_switcher.main()
         return self.server.current_pane_id
 
     def test_pane_focused_updates_mru_history(self):
@@ -163,7 +163,7 @@ class TestMruFunctional(unittest.TestCase):
 
     def test_cycle_repeated_within_timeout_continues(self):
         # Drive three rapid cycles and verify the order is continued.
-        with patch.object(mru_tabs.time, "monotonic", side_effect=[0.0, 0.2, 0.4]):
+        with patch.object(pane_switcher.time, "monotonic", side_effect=[0.0, 0.2, 0.4]):
             focused = self._run_action("cycle", pane_id="pane-0000")
             self.assertEqual(focused, "pane-0001")
 
@@ -175,7 +175,7 @@ class TestMruFunctional(unittest.TestCase):
             self.assertEqual(focused, "pane-0003")
 
     def test_cycle_after_timeout_restarts(self):
-        with patch.object(mru_tabs.time, "monotonic", side_effect=[0.0, 2.0]):
+        with patch.object(pane_switcher.time, "monotonic", side_effect=[0.0, 2.0]):
             self._run_action("cycle", pane_id="pane-0000")
             focused = self._run_action("cycle", pane_id="pane-0001")
             state = self._read_state()
@@ -272,7 +272,7 @@ class TestMruFunctional(unittest.TestCase):
 
 
 class TestProcessInvocation(unittest.TestCase):
-    """Tests that exercise mru_tabs.py as a subprocess."""
+    """Tests that exercise pane_switcher.py as a subprocess."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-MRU_TABS = REPO_ROOT / "mru_tabs.py"
+MRU_TABS = REPO_ROOT / "pane_switcher.py"
 OUTPUT_DIR = REPO_ROOT / "benchmarks" / "output"
 
 sys.path.insert(0, str(REPO_ROOT))
@@ -47,7 +47,7 @@ def generate_panes(size):
 
 
 def run_plugin(env):
-    """Execute mru_tabs.py and return the subprocess result."""
+    """Execute pane_switcher.py and return the subprocess result."""
     return subprocess.run(
         [sys.executable, str(MRU_TABS)],
         env=env,

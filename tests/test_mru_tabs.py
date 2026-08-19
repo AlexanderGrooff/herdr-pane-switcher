@@ -10,12 +10,9 @@ order, attention priority, timeout continuation, and error/edge paths.
 import json
 import os
 import re
-import select
-import socket
 import subprocess
 import sys
 import tempfile
-import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -25,6 +22,7 @@ MRU_TABS = REPO_ROOT / "mru_tabs.py"
 sys.path.insert(0, str(REPO_ROOT))
 
 import mru_tabs  # noqa: E402
+from tests.mock_herdr_server import MockHerdrServer as BaseMockHerdrServer  # noqa: E402
 
 FIXTURE = [
     {"pane_id": "pane-0000", "agent_status": "blocked", "title": "Pane 0"},
@@ -35,61 +33,12 @@ FIXTURE = [
 ]
 
 
-class MockHerdrServer:
-    """Single-threaded Unix socket server that mimics Herdr responses."""
+class MockHerdrServer(BaseMockHerdrServer):
+    """Mock Herdr server with optional injected failures for tests."""
 
     def __init__(self, socket_path, panes, current_pane_id=None):
-        self.socket_path = Path(socket_path)
-        self.panes = panes
-        self.current_pane_id = current_pane_id
         self.failures = set()
-        self._shutdown = threading.Event()
-        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        if self.socket_path.exists():
-            self.socket_path.unlink()
-        self.sock.bind(str(self.socket_path))
-        self.sock.listen(8)
-        self._thread = threading.Thread(target=self._serve, daemon=True)
-        self._thread.start()
-
-    def _serve(self):
-        while not self._shutdown.is_set():
-            try:
-                readable, _, _ = select.select([self.sock], [], [], 0.1)
-                if not readable:
-                    continue
-                conn, _ = self.sock.accept()
-                self._handle(conn)
-            except OSError:
-                break
-
-    def _handle(self, conn):
-        with conn, conn.makefile("r") as reader:
-            line = reader.readline()
-            if not line:
-                return
-            try:
-                request = json.loads(line)
-                response = self._dispatch(
-                    request.get("method"), request.get("params", {})
-                )
-            except Exception as exc:  # noqa: BLE001
-                response = {"error": str(exc)}
-            conn.sendall((json.dumps(response) + "\n").encode())
-
-    def _dispatch(self, method, params):
-        if method in self.failures:
-            return {"error": f"injected failure for {method}"}
-        if method == "pane.list":
-            return {"result": {"panes": self.panes}}
-        if method == "pane.focus":
-            pane_id = params.get("pane_id")
-            if pane_id:
-                self.current_pane_id = pane_id
-            return {"result": "ok"}
-        if method == "pane.current":
-            return {"result": {"pane_id": self.current_pane_id}}
-        return {"error": f"unknown method: {method}"}
+        super().__init__(socket_path, panes, current_pane_id)
 
     def fail(self, method):
         self.failures.add(method)
@@ -97,15 +46,10 @@ class MockHerdrServer:
     def unfail(self, method):
         self.failures.discard(method)
 
-    def stop(self):
-        self._shutdown.set()
-        self._thread.join(timeout=2)
-        try:
-            self.sock.close()
-        except OSError:
-            pass
-        if self.socket_path.exists():
-            self.socket_path.unlink()
+    def _dispatch(self, method, params):
+        if method in self.failures:
+            return {"error": f"injected failure for {method}"}
+        return super()._dispatch(method, params)
 
 
 class TestManifestAndRename(unittest.TestCase):
@@ -242,7 +186,7 @@ class TestMruFunctional(unittest.TestCase):
     def test_cycle_with_empty_pane_list(self):
         self.server.panes = []
         self.server.current_pane_id = None
-        focused = self._run_action("cycle")
+        focused = self._run_action("cycle", pane_id="pane-0001")
         self.assertIsNone(focused)
 
     def test_cycle_with_single_pane(self):

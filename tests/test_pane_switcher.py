@@ -18,11 +18,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-MRU_TABS = REPO_ROOT / "pane_switcher.py"
+PANE_SWITCHER_SCRIPT = REPO_ROOT / "pane_switcher.py"
 sys.path.insert(0, str(REPO_ROOT))
 
 import pane_switcher  # noqa: E402
-from tests.mock_herdr_server import MockHerdrServer as BaseMockHerdrServer  # noqa: E402
+from helpers.mock_herdr_server import MockHerdrServer as BaseMockHerdrServer  # noqa: E402
 
 FIXTURE = [
     {"pane_id": "pane-0000", "agent_status": "blocked", "title": "Pane 0"},
@@ -72,7 +72,7 @@ class TestManifestAndRename(unittest.TestCase):
         self.assertIn('f"plugin:pane-switcher:{method}:{time.time_ns()}"', source)
 
 
-class TestMruFunctional(unittest.TestCase):
+class TestPaneSwitcherFunctional(unittest.TestCase):
     """End-to-end functional tests against a mock Herdr server."""
 
     def setUp(self):
@@ -291,7 +291,7 @@ class TestProcessInvocation(unittest.TestCase):
             env["HERDR_SOCKET_PATH"] = str(self.socket_path)
         env["PATH"] = os.environ.get("PATH", "")
         return subprocess.run(
-            [sys.executable, str(MRU_TABS)],
+            [sys.executable, str(PANE_SWITCHER_SCRIPT)],
             cwd=str(REPO_ROOT),
             env=env,
             capture_output=True,

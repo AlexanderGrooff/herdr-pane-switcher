@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Benchmark harness for herdr-mru-cycle.
+"""Benchmark harness for herdr-pane-switcher.
 
 Starts a temporary Unix socket server that replies with deterministic
 pane.list / pane.focus / pane.current responses, then runs the plugin's
@@ -19,17 +19,16 @@ import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-MRU_TABS = REPO_ROOT / "pane_switcher.py"
+PANE_SWITCHER_SCRIPT = REPO_ROOT / "pane_switcher.py"
 OUTPUT_DIR = REPO_ROOT / "benchmarks" / "output"
 
 sys.path.insert(0, str(REPO_ROOT))
-from tests.mock_herdr_server import MockHerdrServer  # noqa: E402
+from helpers.mock_herdr_server import MockHerdrServer  # noqa: E402
 
 FIXTURE_SIZES = [5, 50, 500]
 ACTIONS = ["cycle", "focus-attention", "cycle-attention", "pane.focused", "pane.closed"]
 DEFAULT_ITERATIONS = 100
 DEFAULT_WARMUP = 5
-MAX_SETUP_EVENTS = 50
 
 STATUS_ROTATION = ["blocked", "done", "idle", "working"]
 
@@ -49,7 +48,7 @@ def generate_panes(size):
 def run_plugin(env):
     """Execute pane_switcher.py and return the subprocess result."""
     return subprocess.run(
-        [sys.executable, str(MRU_TABS)],
+        [sys.executable, str(PANE_SWITCHER_SCRIPT)],
         env=env,
         cwd=str(REPO_ROOT),
         capture_output=True,
@@ -57,46 +56,82 @@ def run_plugin(env):
     )
 
 
-def setup_focus_event(state_dir, pane_id, socket_path):
-    """Run an untimed pane.focused setup event."""
+def setup_event(state_dir, pane_id, socket_path, event="pane.focused"):
+    """Run an untimed setup event (defaults to pane.focused)."""
     env = os.environ.copy()
     env["HERDR_SOCKET_PATH"] = str(socket_path)
     env["HERDR_PLUGIN_STATE_DIR"] = str(state_dir)
-    env["HERDR_PLUGIN_EVENT"] = "pane.focused"
+    env["HERDR_PLUGIN_EVENT"] = event
     env["HERDR_PLUGIN_EVENT_JSON"] = json.dumps({"pane_id": pane_id})
     result = run_plugin(env)
     if result.returncode != 0:
-        raise RuntimeError(f"setup focus for {pane_id} failed: {result.stderr}")
+        raise RuntimeError(f"setup {event} for {pane_id} failed: {result.stderr}")
+
+
+def _cycle_setup(size):
+    return {"event": "pane.focused", "focus_indices": list(range(size))}
+
+
+def _cycle_runtime(size, panes):
+    return {"current_pane": panes[size - 1]["pane_id"], "event_json": None}
+
+
+def _attention_runtime(_size, panes):
+    return {"current_pane": panes[0]["pane_id"], "event_json": None}
+
+
+def _pane_focused_setup(size):
+    return {"event": "pane.focused", "focus_indices": [1 if size > 1 else 0]}
+
+
+def _pane_focused_runtime(_size, panes):
+    pane_id = panes[0]["pane_id"]
+    return {"current_pane": pane_id, "event_json": {"pane_id": pane_id}}
+
+
+def _pane_closed_setup(size):
+    return {"event": "pane.focused", "focus_indices": list(range(min(3, size)))}
+
+
+def _pane_closed_runtime(size, panes):
+    idx = min(2, size - 1)
+    pane_id = panes[idx]["pane_id"]
+    return {"current_pane": pane_id, "event_json": {"pane_id": pane_id}}
+
+
+# Centralized per-action metadata: setup parameters and runtime context.
+ACTION_CONFIG = {
+    "cycle": {"setup": _cycle_setup, "runtime": _cycle_runtime},
+    "focus-attention": {"setup": None, "runtime": _attention_runtime},
+    "cycle-attention": {"setup": None, "runtime": _attention_runtime},
+    "pane.focused": {"setup": _pane_focused_setup, "runtime": _pane_focused_runtime},
+    "pane.closed": {"setup": _pane_closed_setup, "runtime": _pane_closed_runtime},
+}
 
 
 def build_golden_state(state_dir, action, panes, size, socket_path):
     """Populate an isolated state directory for a given action/fixture."""
     state_dir.mkdir(parents=True, exist_ok=True)
-    if action == "cycle":
-        focused = min(size, MAX_SETUP_EVENTS)
-        for i in range(focused):
-            setup_focus_event(state_dir, panes[i]["pane_id"], socket_path)
-    elif action == "pane.focused":
-        setup_focus_event(state_dir, panes[1]["pane_id"], socket_path)
-    elif action == "pane.closed":
-        for i in range(min(3, size)):
-            setup_focus_event(state_dir, panes[i]["pane_id"], socket_path)
+    config = ACTION_CONFIG[action]
+    if config["setup"] is None:
+        return
+    setup = config["setup"](size)
+    for idx in setup["focus_indices"]:
+        setup_event(
+            state_dir,
+            panes[idx]["pane_id"],
+            socket_path,
+            event=setup["event"],
+        )
 
 
 def action_context(action, panes, size):
     """Return the current pane and event payload needed for an action."""
-    if action == "cycle":
-        focused = min(size, MAX_SETUP_EVENTS)
-        return panes[focused - 1]["pane_id"], None
-    if action == "focus-attention":
-        return panes[0]["pane_id"], None
-    if action == "cycle-attention":
-        return panes[0]["pane_id"], None
-    if action == "pane.focused":
-        return panes[0]["pane_id"], {"pane_id": panes[0]["pane_id"]}
-    if action == "pane.closed":
-        return panes[2]["pane_id"], {"pane_id": panes[2]["pane_id"]}
-    raise ValueError(f"unknown action: {action}")
+    config = ACTION_CONFIG.get(action)
+    if config is None:
+        raise ValueError(f"unknown action: {action}")
+    ctx = config["runtime"](size, panes)
+    return ctx["current_pane"], ctx["event_json"]
 
 
 def percentile(sorted_values, p):
@@ -130,7 +165,6 @@ def benchmark_action(
     samples = []
     for i in range(-warmup, iterations):
         iter_dir = Path(tempfile.mkdtemp(dir=tmp_root, prefix=f"iter-{size}-{action}-"))
-        iter_dir.mkdir(parents=True, exist_ok=True)
         golden_state_json = golden_state / "state.json"
         if golden_state_json.exists():
             shutil.copy(golden_state_json, iter_dir / "state.json")
@@ -202,7 +236,7 @@ def write_outputs(
         )
 
     report_lines = [
-        "# herdr-mru-cycle Benchmark Report",
+        "# herdr-pane-switcher Benchmark Report",
         "",
         f"- Generated: {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}",
         f"- Python: {sys.version.split()[0]}",
@@ -212,7 +246,7 @@ def write_outputs(
         "## Results by fixture and action",
         "",
         "| Fixture | Action | p50 (ms) | p95 (ms) | p99 (ms) |",
-        "|---|---:|---:|---:|---:|",
+        "|---|---|---:|---:|---:|",
     ]
     for row in rows:
         report_lines.append(
@@ -227,7 +261,7 @@ def write_outputs(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Benchmark herdr-mru-cycle plugin")
+    parser = argparse.ArgumentParser(description="Benchmark herdr-pane-switcher plugin")
     parser.add_argument(
         "--sizes",
         type=int,
@@ -263,7 +297,7 @@ def main():
     all_samples = []
     results = []
 
-    with tempfile.TemporaryDirectory(dir="/tmp", prefix="mru-bench-") as tmp_base:
+    with tempfile.TemporaryDirectory(dir="/tmp", prefix="pane-switcher-bench-") as tmp_base:
         tmp_base = Path(tmp_base)
         for size in args.sizes:
             panes = generate_panes(size)

@@ -1,1 +1,1 @@
-# Functional tests for herdr.mru-panes
+# Functional tests for herdr.pane-switcher

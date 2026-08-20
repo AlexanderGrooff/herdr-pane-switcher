@@ -133,6 +133,11 @@ Run a side-by-side comparison against the Python baseline:
 make benchmark
 ```
 
+The harness reports fixture/action progress to stderr and bounds each plugin
+process to 15 seconds, so a stalled socket cannot make the run appear silent or
+hang indefinitely. The default run is intentionally comprehensive; use
+`python3 benchmarks/run.py --iterations 10 --warmup 1` for a quicker local check.
+
 This writes `benchmarks/output/report.md`, `benchmarks/output/samples.json`, and `benchmarks/output/samples.csv`.
 
 ## File layout

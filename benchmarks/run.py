@@ -300,6 +300,11 @@ def write_outputs(
     return report_text
 
 
+def report_progress(message):
+    """Write flushed progress so long benchmark phases remain observable."""
+    print(f"[benchmark] {message}", file=sys.stderr, flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Benchmark herdr-pane-switcher plugin")
     parser.add_argument(
@@ -343,6 +348,11 @@ def main():
     else:
         impls = [args.impl]
 
+    report_progress(
+        f"starting implementations={','.join(impls)} sizes={','.join(map(str, args.sizes))} "
+        f"actions={','.join(args.actions)} iterations={args.iterations} warmup={args.warmup}"
+    )
+
     if "python" in impls and not BASELINE_SCRIPT.exists():
         raise FileNotFoundError(
             f"Python baseline not found: {BASELINE_SCRIPT}; "
@@ -375,6 +385,9 @@ def main():
                     golden_states = {}
                     for action in args.actions:
                         golden_state = golden_base / impl / action
+                        report_progress(
+                            f"fixture={size} impl={impl} action={action} setup"
+                        )
                         build_golden_state(
                             golden_state, action, panes, size, socket_path, impl
                         )
@@ -398,6 +411,9 @@ def main():
                         )
                         all_samples.extend(samples)
                         results.append((size, action, impl, samples))
+                        report_progress(
+                            f"fixture={size} impl={impl} action={action} complete"
+                        )
             finally:
                 server.stop()
 

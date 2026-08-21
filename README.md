@@ -147,5 +147,6 @@ This writes `benchmarks/output/report.md`, `benchmarks/output/samples.json`, and
 - `benchmarks/baseline.py` — reference Python implementation used for golden tests and benchmarks
 - `benchmarks/run.py` — benchmark harness
 - `helpers/mock_herdr_server.py` — mock Unix socket server used by golden tests and benchmarks
+- `helpers/plugin_harness.py` — shared pane fixtures and implementation runner for tests and benchmarks
 - `tests/test_golden.py` — equivalence tests between Python and Rust implementations
 - `tests/test_manifest.py` — static checks for plugin manifest and layout

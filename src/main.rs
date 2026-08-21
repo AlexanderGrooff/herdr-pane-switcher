@@ -1,5 +1,33 @@
 use anyhow::Result;
 
+mod json {
+    use serde_json::Value;
+
+    /// Recursively search a JSON value for the first occurrence of `key`.
+    /// Mirrors Python's nested_value helper so the Rust client is tolerant
+    /// of both the mock server's response shape and Herdr's internally-tagged
+    /// response shapes.
+    pub fn nested_value<'v>(value: &'v Value, key: &str) -> Option<&'v Value> {
+        match value {
+            Value::Object(map) => {
+                if let Some(value) = map.get(key) {
+                    return Some(value);
+                }
+                map.values().find_map(|value| nested_value(value, key))
+            }
+            Value::Array(values) => values.iter().find_map(|value| nested_value(value, key)),
+            _ => None,
+        }
+    }
+
+    pub fn nested_string(value: &Value, key: &str) -> Option<String> {
+        nested_value(value, key).and_then(|value| match value {
+            Value::String(value) if !value.is_empty() => Some(value.clone()),
+            _ => None,
+        })
+    }
+}
+
 mod herdr {
     use anyhow::{bail, Context, Result};
     use serde::{Deserialize, Serialize};
@@ -43,46 +71,6 @@ mod herdr {
             .map(|d| d.as_nanos())
             .unwrap_or(0);
         format!("plugin:pane-switcher:{}:{}", method, nanos)
-    }
-
-    /// Recursively search a JSON value for the first occurrence of `key`.
-    /// Mirrors Python's nested_value helper so the Rust client is tolerant
-    /// of both the mock server's `{"result": {"panes": ...}}` shape and
-    /// Herdr's internally-tagged response shapes.
-    fn nested_value<'v>(value: &'v Value, key: &str) -> Option<&'v Value> {
-        match value {
-            Value::Object(map) => {
-                if let Some(v) = map.get(key) {
-                    return Some(v);
-                }
-                for child in map.values() {
-                    if let Some(v) = nested_value(child, key) {
-                        return Some(v);
-                    }
-                }
-                None
-            }
-            Value::Array(arr) => {
-                for child in arr {
-                    if let Some(v) = nested_value(child, key) {
-                        return Some(v);
-                    }
-                }
-                None
-            }
-            _ => None,
-        }
-    }
-
-    fn truthy_string(value: &Value) -> Option<String> {
-        match value {
-            Value::String(s) if !s.is_empty() => Some(s.clone()),
-            _ => None,
-        }
-    }
-
-    fn as_string(value: Option<&Value>) -> Option<String> {
-        value.and_then(truthy_string)
     }
 
     fn herdr_request_raw(method: &str, params: Value) -> Result<String> {
@@ -157,42 +145,30 @@ mod herdr {
         check_error(&response)
     }
 
-    pub fn current_pane() -> Result<Option<String>> {
+    pub fn current_pane_id() -> Result<Option<String>> {
         let response = herdr_request_raw("pane.current", serde_json::json!({}))?;
         let data: Value = serde_json::from_str(&response)
             .with_context(|| format!("invalid pane.current response: {}", response.trim()))?;
         if let Some(err) = data.get("error").and_then(Value::as_str) {
             bail!("herdr pane.current failed: {}", err);
         }
-        Ok(as_string(nested_value(&data, "pane_id")))
+        Ok(crate::json::nested_string(&data, "pane_id"))
     }
 }
 
 mod state {
     use anyhow::{bail, Context, Result};
+    use serde::{Deserialize, Serialize};
     use std::fs::{create_dir_all, rename, File, OpenOptions};
     use std::io::{Read, Write};
-    use std::os::fd::AsRawFd;
-    use std::os::raw::c_int;
     use std::path::Path;
 
-    /// Compact binary state file. The `postcard` crate is unavailable in the
-    /// current registry mirror, so we use a tiny tagged little-endian format
-    /// that is still versioned and stable.
-    const MAGIC: &[u8] = b"HMSC";
-    const CURRENT_VERSION: u32 = 2;
+    /// Compact binary state file serialized with postcard. The version field
+    /// allows incompatible state changes to reset cleanly while keeping the
+    /// representation stable across separate plugin invocations.
+    const CURRENT_VERSION: u32 = 3;
     const STATE_FILE: &str = "state.bin";
     const STATE_TMP_FILE: &str = "state.bin.tmp";
-
-    const LOCK_EX: c_int = 0x02;
-    const LOCK_UN: c_int = 0x08;
-
-    // SAFETY: flock(2) is declared directly because the rustix crate is not
-    // available in the environment's registry mirror. It is a libc function
-    // on both macOS and Linux, linked through the standard library.
-    extern "C" {
-        fn flock(fd: c_int, operation: c_int) -> c_int;
-    }
 
     struct LockGuard {
         file: File,
@@ -207,26 +183,22 @@ mod state {
                 .truncate(false)
                 .open(lock_path)
                 .context("failed to open state lock")?;
-            let fd = file.as_raw_fd();
-            // SAFETY: flock is the libc advisory locking function; fd is valid
-            // and the lock is released when the file is closed/dropped.
-            let rc = unsafe { flock(fd, LOCK_EX) };
-            if rc != 0 {
-                bail!("failed to acquire state lock");
-            }
+            // File::lock provides the platform advisory lock while keeping the
+            // lock lifetime tied to the open file descriptor held by the guard.
+            file.lock().context("failed to acquire state lock")?;
             Ok(Self { file })
         }
     }
 
     impl Drop for LockGuard {
         fn drop(&mut self) {
-            // SAFETY: same fd used for LOCK_EX; errors on unlock are ignored
-            // because the lock is also released when the fd is closed.
-            let _ = unsafe { flock(self.file.as_raw_fd(), LOCK_UN) };
+            // Unlock failures cannot be returned from Drop; closing the file
+            // descriptor still releases the advisory lock on process exit.
+            let _ = self.file.unlock();
         }
     }
 
-    #[derive(Debug, Clone, PartialEq)]
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
     pub struct State {
         pub version: u32,
         pub history: Vec<String>,
@@ -243,115 +215,24 @@ mod state {
         }
     }
 
-    #[derive(Debug, Clone, PartialEq)]
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
     pub struct Cycle {
         pub index: usize,
         pub target: String,
         pub last_at: f64,
+        pub order: Vec<String>,
     }
 
-    fn write_u32(buf: &mut Vec<u8>, value: u32) {
-        buf.extend_from_slice(&value.to_le_bytes());
-    }
-
-    fn write_u8(buf: &mut Vec<u8>, value: u8) {
-        buf.push(value);
-    }
-
-    fn write_string(buf: &mut Vec<u8>, value: &str) {
-        write_u32(buf, value.len() as u32);
-        buf.extend_from_slice(value.as_bytes());
-    }
-
-    pub fn to_bytes(state: &State) -> Vec<u8> {
-        let mut buf = Vec::new();
-        buf.extend_from_slice(MAGIC);
-        write_u32(&mut buf, state.version);
-        write_u32(&mut buf, state.history.len() as u32);
-        for pane in &state.history {
-            write_string(&mut buf, pane);
-        }
-        if let Some(cycle) = &state.cycle {
-            write_u8(&mut buf, 1);
-            write_u32(&mut buf, cycle.index as u32);
-            write_string(&mut buf, &cycle.target);
-            buf.extend_from_slice(&cycle.last_at.to_le_bytes());
-        } else {
-            write_u8(&mut buf, 0);
-        }
-        buf
-    }
-
-    fn read_u32(buf: &[u8], pos: &mut usize) -> anyhow::Result<u32> {
-        if *pos + 4 > buf.len() {
-            bail!("truncated state file");
-        }
-        let value = u32::from_le_bytes(buf[*pos..*pos + 4].try_into().unwrap());
-        *pos += 4;
-        Ok(value)
-    }
-
-    fn read_u8(buf: &[u8], pos: &mut usize) -> anyhow::Result<u8> {
-        if *pos >= buf.len() {
-            bail!("truncated state file");
-        }
-        let value = buf[*pos];
-        *pos += 1;
-        Ok(value)
-    }
-
-    fn read_string(buf: &[u8], pos: &mut usize) -> anyhow::Result<String> {
-        let len = read_u32(buf, pos)? as usize;
-        if *pos + len > buf.len() {
-            bail!("truncated state file");
-        }
-        let s =
-            std::str::from_utf8(&buf[*pos..*pos + len]).context("invalid UTF-8 in state file")?;
-        *pos += len;
-        Ok(s.to_string())
-    }
-
-    fn read_f64(buf: &[u8], pos: &mut usize) -> anyhow::Result<f64> {
-        if *pos + 8 > buf.len() {
-            bail!("truncated state file");
-        }
-        let bytes: [u8; 8] = buf[*pos..*pos + 8].try_into().unwrap();
-        *pos += 8;
-        Ok(f64::from_le_bytes(bytes))
+    pub fn to_bytes(state: &State) -> Result<Vec<u8>> {
+        postcard::to_stdvec(state).context("failed to serialize state")
     }
 
     pub fn from_bytes(buf: &[u8]) -> Result<State> {
-        if buf.len() < MAGIC.len() + 4 || &buf[..MAGIC.len()] != MAGIC {
-            bail!("invalid state file magic");
+        let state: State = postcard::from_bytes(buf).context("failed to deserialize state")?;
+        if state.version != CURRENT_VERSION {
+            bail!("unsupported state file version: {}", state.version);
         }
-        let mut pos = MAGIC.len();
-        let version = read_u32(buf, &mut pos)?;
-        if version != CURRENT_VERSION {
-            bail!("unsupported state file version: {}", version);
-        }
-        let history_len = read_u32(buf, &mut pos)? as usize;
-        let mut history = Vec::with_capacity(history_len.min(1_000_000));
-        for _ in 0..history_len {
-            history.push(read_string(buf, &mut pos)?);
-        }
-        let has_cycle = read_u8(buf, &mut pos)?;
-        let cycle = if has_cycle != 0 {
-            let index = read_u32(buf, &mut pos)? as usize;
-            let target = read_string(buf, &mut pos)?;
-            let last_at = read_f64(buf, &mut pos)?;
-            Some(Cycle {
-                index,
-                target,
-                last_at,
-            })
-        } else {
-            None
-        };
-        Ok(State {
-            version,
-            history,
-            cycle,
-        })
+        Ok(state)
     }
 
     pub fn with_state<F, R>(state_dir: &Path, f: F) -> Result<R>
@@ -385,7 +266,7 @@ mod state {
                 .truncate(true)
                 .open(&tmp_path)
                 .context("failed to open temporary state file")?;
-            let bytes = to_bytes(&state);
+            let bytes = to_bytes(&state)?;
             tmp.write_all(&bytes)
                 .context("failed to write temporary state file")?;
         }
@@ -438,7 +319,7 @@ mod env {
         };
 
         if event.is_some() {
-            if let Some(id) = nested_value(&payload, "pane_id") {
+            if let Some(id) = crate::json::nested_string(&payload, "pane_id") {
                 return Ok(Some(id));
             }
         }
@@ -447,10 +328,10 @@ mod env {
             return Ok(Some(pane_id));
         }
 
-        if let Some(id) = nested_value(&payload, "focused_pane_id") {
+        if let Some(id) = crate::json::nested_string(&payload, "focused_pane_id") {
             return Ok(Some(id));
         }
-        if let Some(id) = nested_value(&payload, "pane_id") {
+        if let Some(id) = crate::json::nested_string(&payload, "pane_id") {
             return Ok(Some(id));
         }
 
@@ -462,7 +343,7 @@ mod env {
             return Ok(Some(pane_id));
         }
 
-        match crate::herdr::current_pane() {
+        match crate::herdr::current_pane_id() {
             Ok(pane_id) => Ok(pane_id),
             Err(_) => Ok(None),
         }
@@ -471,40 +352,6 @@ mod env {
     fn parse_event_json(raw: &str) -> Result<Value> {
         serde_json::from_str(raw)
             .with_context(|| format!("malformed HERDR_PLUGIN_EVENT_JSON: {}", raw))
-    }
-
-    fn nested_value(value: &Value, key: &str) -> Option<String> {
-        match value {
-            Value::Object(map) => {
-                if let Some(v) = map.get(key) {
-                    if let Some(s) = as_truthy_string(v) {
-                        return Some(s);
-                    }
-                }
-                for v in map.values() {
-                    if let Some(s) = nested_value(v, key) {
-                        return Some(s);
-                    }
-                }
-                None
-            }
-            Value::Array(arr) => {
-                for v in arr {
-                    if let Some(s) = nested_value(v, key) {
-                        return Some(s);
-                    }
-                }
-                None
-            }
-            _ => None,
-        }
-    }
-
-    fn as_truthy_string(value: &Value) -> Option<String> {
-        match value {
-            Value::String(s) if !s.is_empty() => Some(s.clone()),
-            _ => None,
-        }
     }
 }
 
@@ -579,12 +426,7 @@ mod actions {
         let state_dir = env::state_dir()?;
         let now = now_epoch()?;
         let target = state::with_state(&state_dir, |state| {
-            let mut chosen: Option<String> = None;
-            cycle_panes_logic(current_pane, &panes, state, now, |t| {
-                chosen = Some(t.to_string());
-                Ok(())
-            })?;
-            Ok(chosen)
+            cycle_panes_logic(current_pane, &panes, state, now)
         })?;
 
         if let Some(target) = target {
@@ -595,18 +437,14 @@ mod actions {
         Ok(())
     }
 
-    pub fn cycle_panes_logic<F>(
+    pub fn cycle_panes_logic(
         current_pane: &str,
         panes: &[String],
         state: &mut State,
         now: f64,
-        mut focus: F,
-    ) -> Result<()>
-    where
-        F: FnMut(&str) -> Result<()>,
-    {
+    ) -> Result<Option<String>> {
         if panes.len() < 2 {
-            return Ok(());
+            return Ok(None);
         }
 
         let mut history: Vec<String> = state
@@ -618,6 +456,7 @@ mod actions {
         history = promote(&history, current_pane);
 
         let known: std::collections::HashSet<_> = history.iter().cloned().collect();
+        let pane_set: std::collections::HashSet<&str> = panes.iter().map(|p| p.as_str()).collect();
         for pane in panes {
             if !known.contains(pane) {
                 history.push(pane.clone());
@@ -628,12 +467,16 @@ mod actions {
             let elapsed = now - cycle.last_at;
             (0.0..=CYCLE_TIMEOUT_SECONDS).contains(&elapsed)
                 && cycle.target == current_pane
-                && panes.iter().all(|p| known.contains(p))
+                && cycle.order.iter().all(|p| pane_set.contains(p.as_str()))
         } else {
             false
         };
 
-        let order = history.clone();
+        let order = if continuing {
+            state.cycle.as_ref().unwrap().order.clone()
+        } else {
+            history.clone()
+        };
         let index = if continuing {
             let cycle = state.cycle.as_ref().unwrap();
             (cycle.index + 1) % order.len()
@@ -651,13 +494,10 @@ mod actions {
             index,
             target: target.clone(),
             last_at: now,
+            order: order.clone(),
         });
 
-        if target != current_pane {
-            focus(&target)?;
-        }
-
-        Ok(())
+        Ok(Some(target))
     }
 
     pub fn attention_panes(panes: &[Pane]) -> Vec<&Pane> {
@@ -823,7 +663,7 @@ mod tests {
 
     fn make_state(history: Vec<String>, cycle: Option<state::Cycle>) -> state::State {
         state::State {
-            version: 2,
+            version: 3,
             history,
             cycle,
         }
@@ -833,19 +673,15 @@ mod tests {
     fn cycle_first_returns_second_mru_pane() {
         let panes = vec!["a".to_string(), "b".to_string(), "c".to_string()];
         let mut state = make_state(vec![], None);
-        let mut focused = Vec::new();
 
-        actions::cycle_panes_logic("a", &panes, &mut state, 0.0, |t| {
-            focused.push(t.to_string());
-            Ok(())
-        })
-        .unwrap();
+        let target = actions::cycle_panes_logic("a", &panes, &mut state, 0.0).unwrap();
 
-        assert_eq!(focused, vec!["b"]);
+        assert_eq!(target.as_deref(), Some("b"));
         assert_eq!(state.history, vec!["b", "a", "c"]);
         let cycle = state.cycle.as_ref().unwrap();
         assert_eq!(cycle.index, 1);
         assert_eq!(cycle.target, "b");
+        assert_eq!(cycle.order, vec!["a", "b", "c"]);
     }
 
     #[test]
@@ -853,19 +689,16 @@ mod tests {
         let panes = vec!["a".to_string(), "b".to_string(), "c".to_string()];
         let mut state = make_state(vec![], None);
 
-        actions::cycle_panes_logic("a", &panes, &mut state, 0.0, |_| Ok(())).unwrap();
+        actions::cycle_panes_logic("a", &panes, &mut state, 0.0).unwrap();
         assert_eq!(state.cycle.as_ref().unwrap().target, "b");
 
-        let mut focused = Vec::new();
-        actions::cycle_panes_logic("b", &panes, &mut state, 0.2, |t| {
-            focused.push(t.to_string());
-            Ok(())
-        })
-        .unwrap();
+        let target = actions::cycle_panes_logic("b", &panes, &mut state, 0.2).unwrap();
 
-        assert_eq!(focused, vec!["c"]);
-        assert_eq!(state.cycle.as_ref().unwrap().index, 2);
-        assert_eq!(state.cycle.as_ref().unwrap().target, "c");
+        assert_eq!(target.as_deref(), Some("c"));
+        let cycle = state.cycle.as_ref().unwrap();
+        assert_eq!(cycle.index, 2);
+        assert_eq!(cycle.target, "c");
+        assert_eq!(cycle.order, vec!["a", "b", "c"]);
         assert_eq!(state.history, vec!["c", "b", "a"]);
     }
 
@@ -874,32 +707,24 @@ mod tests {
         let panes = vec!["a".to_string(), "b".to_string(), "c".to_string()];
         let mut state = make_state(vec![], None);
 
-        actions::cycle_panes_logic("a", &panes, &mut state, 0.0, |_| Ok(())).unwrap();
-        let mut focused = Vec::new();
-        actions::cycle_panes_logic("b", &panes, &mut state, 2.0, |t| {
-            focused.push(t.to_string());
-            Ok(())
-        })
-        .unwrap();
+        actions::cycle_panes_logic("a", &panes, &mut state, 0.0).unwrap();
+        let target = actions::cycle_panes_logic("b", &panes, &mut state, 2.0).unwrap();
 
-        assert_eq!(focused, vec!["a"]);
-        assert_eq!(state.cycle.as_ref().unwrap().index, 1);
-        assert_eq!(state.cycle.as_ref().unwrap().target, "a");
+        assert_eq!(target.as_deref(), Some("a"));
+        let cycle = state.cycle.as_ref().unwrap();
+        assert_eq!(cycle.index, 1);
+        assert_eq!(cycle.target, "a");
+        assert_eq!(cycle.order, vec!["b", "a", "c"]);
     }
 
     #[test]
     fn cycle_empty_pane_list_is_no_op() {
         let panes: Vec<String> = vec![];
         let mut state = make_state(vec![], None);
-        let mut focused = false;
 
-        actions::cycle_panes_logic("a", &panes, &mut state, 0.0, |_t| {
-            focused = true;
-            Ok(())
-        })
-        .unwrap();
+        let target = actions::cycle_panes_logic("a", &panes, &mut state, 0.0).unwrap();
 
-        assert!(!focused);
+        assert!(target.is_none());
         assert!(state.cycle.is_none());
     }
 
@@ -907,15 +732,10 @@ mod tests {
     fn cycle_single_pane_is_no_op() {
         let panes = vec!["a".to_string()];
         let mut state = make_state(vec![], None);
-        let mut focused = false;
 
-        actions::cycle_panes_logic("a", &panes, &mut state, 0.0, |_t| {
-            focused = true;
-            Ok(())
-        })
-        .unwrap();
+        let target = actions::cycle_panes_logic("a", &panes, &mut state, 0.0).unwrap();
 
-        assert!(!focused);
+        assert!(target.is_none());
         assert!(state.cycle.is_none());
     }
 
@@ -926,46 +746,65 @@ mod tests {
             vec!["b".to_string(), "a".to_string(), "c".to_string()],
             None,
         );
-        let mut focused = Vec::new();
 
-        actions::cycle_panes_logic("a", &panes, &mut state, 0.0, |t| {
-            focused.push(t.to_string());
-            Ok(())
-        })
-        .unwrap();
+        let target = actions::cycle_panes_logic("a", &panes, &mut state, 0.0).unwrap();
 
-        assert_eq!(focused, vec!["c"]);
+        assert_eq!(target.as_deref(), Some("c"));
         assert_eq!(state.history, vec!["c", "a"]);
         assert!(state.history.iter().find(|p| *p == "b").is_none());
     }
 
     #[test]
-    fn cycle_target_equals_current_skips_focus() {
-        // When the next pane in the MRU order wraps around to the current pane,
-        // no pane.focus call should be emitted.
+    fn cycle_wraps_to_first_after_reaching_end() {
         let panes = vec!["a".to_string(), "b".to_string(), "c".to_string()];
-        // previous cycle: order [a, b, c] with target c at index 2.
-        // After the cycle, state.history is [c, a, b].
+        // Two cycles have already happened: order [a, b, c] with target c at index 2.
+        // state.history is [c, b, a].
         let mut state = make_state(
-            vec!["c".to_string(), "a".to_string(), "b".to_string()],
+            vec!["c".to_string(), "b".to_string(), "a".to_string()],
             Some(state::Cycle {
                 index: 2,
                 target: "c".to_string(),
-                last_at: 0.0,
+                last_at: 0.2,
+                order: vec!["a".to_string(), "b".to_string(), "c".to_string()],
             }),
         );
-        let mut focused = false;
 
-        // current pane is c; next index (2 + 1) % 3 = 0 wraps to c itself.
-        actions::cycle_panes_logic("c", &panes, &mut state, 0.2, |_t| {
-            focused = true;
-            Ok(())
-        })
-        .unwrap();
+        // current pane is c; next index (2 + 1) % 3 = 0, target a.
+        let target = actions::cycle_panes_logic("c", &panes, &mut state, 0.4).unwrap();
 
-        assert!(!focused);
-        assert_eq!(state.cycle.as_ref().unwrap().target, "c");
-        assert_eq!(state.cycle.as_ref().unwrap().index, 0);
+        assert_eq!(target.as_deref(), Some("a"));
+        let cycle = state.cycle.as_ref().unwrap();
+        assert_eq!(cycle.target, "a");
+        assert_eq!(cycle.index, 0);
+        assert_eq!(cycle.order, vec!["a", "b", "c"]);
+        assert_eq!(state.history, vec!["a", "c", "b"]);
+    }
+
+    #[test]
+    fn cycle_continuation_resets_when_stored_order_contains_removed_pane() {
+        // First cycle from a with panes [a, b, c]: order [a, b, c], target b.
+        // Then pane c disappears from pane.list without a pane.closed event.
+        // The next cycle from b must restart from the new MRU, not continue
+        // using the stale order.
+        let mut state = make_state(
+            vec!["b".to_string(), "a".to_string(), "c".to_string()],
+            Some(state::Cycle {
+                index: 1,
+                target: "b".to_string(),
+                last_at: 0.0,
+                order: vec!["a".to_string(), "b".to_string(), "c".to_string()],
+            }),
+        );
+        let panes = vec!["a".to_string(), "b".to_string()];
+
+        let target = actions::cycle_panes_logic("b", &panes, &mut state, 0.2).unwrap();
+
+        assert_eq!(target.as_deref(), Some("a"));
+        let cycle = state.cycle.as_ref().unwrap();
+        assert_eq!(cycle.target, "a");
+        assert_eq!(cycle.index, 1);
+        assert_eq!(cycle.order, vec!["b", "a"]);
+        assert_eq!(state.history, vec!["a", "b"]);
     }
 
     #[test]
@@ -982,6 +821,7 @@ mod tests {
                 index: 1,
                 target: "b".to_string(),
                 last_at: 1.0,
+                order: vec!["a".to_string(), "b".to_string()],
             });
             Ok(())
         })
@@ -989,8 +829,9 @@ mod tests {
 
         state::with_state(&tmp, |s| {
             assert_eq!(s.history, vec!["a", "b"]);
-            assert_eq!(s.version, 2);
-            assert!(s.cycle.is_some());
+            assert_eq!(s.version, 3);
+            let cycle = s.cycle.as_ref().unwrap();
+            assert_eq!(cycle.order, vec!["a", "b"]);
             Ok(())
         })
         .unwrap();
@@ -1034,7 +875,7 @@ mod tests {
             history: vec!["x".to_string()],
             cycle: None,
         };
-        let bytes = state::to_bytes(&bad);
+        let bytes = state::to_bytes(&bad).unwrap();
         std::fs::write(tmp.join("state.bin"), bytes).unwrap();
 
         state::with_state(&tmp, |s| {

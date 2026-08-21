@@ -9,6 +9,7 @@ This is a Herdr plugin that cycles panes in most-recently-used order and jumps t
 - `benchmarks/baseline.py` — reference Python implementation used only for golden tests and benchmarks.
 - `benchmarks/run.py` — benchmark harness.
 - `helpers/mock_herdr_server.py` — mock Unix socket server used by golden tests and benchmarks.
+- `helpers/plugin_harness.py` — shared pane fixtures and implementation runner used by golden tests and benchmarks.
 - `tests/test_golden.py` — equivalence tests between Python and Rust.
 - `tests/test_manifest.py` — static checks for the manifest and repository layout.
 
@@ -16,7 +17,7 @@ This is a Herdr plugin that cycles panes in most-recently-used order and jumps t
 
 - Herdr injects `HERDR_SOCKET_PATH`, `HERDR_BIN_PATH`, `HERDR_PLUGIN_STATE_DIR`, and event context at runtime. Action commands also receive `HERDR_PLUGIN_ACTION_ID`.
 - The binary makes raw JSON socket requests to `pane.list`, `pane.focus`, and `pane.current`.
-- State is stored in `HERDR_PLUGIN_STATE_DIR/state.bin` with advisory file locking (`flock`).
+- State is serialized with `postcard` in `HERDR_PLUGIN_STATE_DIR/state.bin` with standard-library advisory file locking.
 - The cycle continuation timeout is 1 second, using wall-clock time so it is comparable across separate process invocations.
 - `focus-attention` jumps to the first pane by `agent_status` priority: `blocked`, then `done`, then `idle`, then `working`.
 - `cycle-attention` jumps to the next pane in that same priority order after the current one, wrapping to the first.
@@ -98,4 +99,4 @@ description = "cycle attention panes"
 ## Constraints
 
 - `min_herdr_version = "0.7.5"`
-- `platforms = ["macos", "linux"]` only, because the binary uses `flock` and Unix-domain sockets.
+- `platforms = ["macos", "linux"]` only, because the binary uses advisory file locking and Unix-domain sockets.

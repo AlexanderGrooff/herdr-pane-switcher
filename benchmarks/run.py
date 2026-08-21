@@ -15,55 +15,27 @@ import json
 import math
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
 import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-BASELINE_SCRIPT = REPO_ROOT / "benchmarks" / "baseline.py"
-RUST_BINARY = REPO_ROOT / "bin" / "herdr-mru-cycle"
 OUTPUT_DIR = REPO_ROOT / "benchmarks" / "output"
 
 sys.path.insert(0, str(REPO_ROOT))
 from helpers.mock_herdr_server import MockHerdrServer  # noqa: E402
+from helpers.plugin_harness import (  # noqa: E402
+    BASELINE_SCRIPT,
+    RUST_BINARY,
+    generate_panes,
+    run_impl,
+)
 
 FIXTURE_SIZES = [5, 50, 500]
 ACTIONS = ["cycle", "focus-attention", "cycle-attention", "pane.focused", "pane.closed"]
 DEFAULT_ITERATIONS = 100
 DEFAULT_WARMUP = 5
-
-STATUS_ROTATION = ["blocked", "done", "idle", "working"]
-
-
-def generate_panes(size):
-    """Return a fixture with `size` panes and a mix of agent_status values."""
-    return [
-        {
-            "pane_id": f"pane-{i:04d}",
-            "agent_status": STATUS_ROTATION[i % len(STATUS_ROTATION)],
-            "title": f"Pane {i}",
-        }
-        for i in range(size)
-    ]
-
-
-def run_impl(impl, env):
-    """Execute one implementation and return the subprocess result."""
-    if impl == "python":
-        cmd = [sys.executable, str(BASELINE_SCRIPT)]
-    elif impl == "rust":
-        cmd = [str(RUST_BINARY)]
-    else:
-        raise ValueError(f"unknown impl: {impl}")
-    return subprocess.run(
-        cmd,
-        env=env,
-        cwd=str(REPO_ROOT),
-        capture_output=True,
-        text=True,
-    )
 
 
 def setup_event(state_dir, pane_id, socket_path, event, impl):
@@ -384,10 +356,10 @@ def main():
                 for impl in impls:
                     golden_states = {}
                     for action in args.actions:
-                        golden_state = golden_base / impl / action
                         report_progress(
                             f"fixture={size} impl={impl} action={action} setup"
                         )
+                        golden_state = golden_base / impl / action
                         build_golden_state(
                             golden_state, action, panes, size, socket_path, impl
                         )

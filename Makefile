@@ -16,7 +16,7 @@ test: build
 	cargo test
 	@set -e; \
 	if command -v ruff >/dev/null 2>&1; then ruff check .; fi; \
-	python3 -m py_compile benchmarks/baseline.py benchmarks/run.py tests/test_golden.py tests/test_manifest.py; \
+	python3 -m py_compile benchmarks/baseline.py benchmarks/run.py helpers/plugin_harness.py tests/test_golden.py tests/test_manifest.py; \
 	python3 -m unittest discover tests; \
 	TMP=$$(mktemp -d); \
 	trap 'rm -rf "$$TMP"' EXIT; \

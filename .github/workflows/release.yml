@@ -43,7 +43,9 @@ jobs:
 
       - name: Install cross
         if: matrix.cross
-        uses: taiki-e/install-action@cross
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
 
       - name: Build release binary
         run: |
@@ -58,13 +60,13 @@ jobs:
           asset="herdr-mru-cycle-${{ matrix.target }}.tar.gz"
           mkdir -p dist
           tar czf "dist/${asset}" -C "target/${{ matrix.target }}/release" herdr-mru-cycle
-          python3 - <<'PY'
+          python3 - "$asset" <<'PY'
           import hashlib, pathlib, sys
-          path = pathlib.Path("dist") / sys.argv[1]
+          asset = sys.argv[1]
+          path = pathlib.Path("dist") / asset
           digest = hashlib.sha256(path.read_bytes()).hexdigest()
           (path.with_suffix(path.suffix + ".sha256")).write_text(f"{digest}  {path.name}\n")
           PY
-          "${asset}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

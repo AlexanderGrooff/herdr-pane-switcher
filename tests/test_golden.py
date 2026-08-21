@@ -9,7 +9,6 @@ agree on observable behavior even though their internal state formats differ.
 
 import json
 import os
-import subprocess
 import sys
 import tempfile
 import time
@@ -17,41 +16,12 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-BASELINE_SCRIPT = REPO_ROOT / "benchmarks" / "baseline.py"
-RUST_BINARY = REPO_ROOT / "bin" / "herdr-mru-cycle"
 
 sys.path.insert(0, str(REPO_ROOT))
 from helpers.mock_herdr_server import MockHerdrServer  # noqa: E402
+from helpers.plugin_harness import generate_panes, run_impl  # noqa: E402
 
 FIXTURE_SIZE = 5
-STATUS_ROTATION = ["blocked", "done", "idle", "working"]
-
-
-def generate_panes(size):
-    return [
-        {
-            "pane_id": f"pane-{i:04d}",
-            "agent_status": STATUS_ROTATION[i % len(STATUS_ROTATION)],
-            "title": f"Pane {i}",
-        }
-        for i in range(size)
-    ]
-
-
-def run_impl(impl, env):
-    if impl == "python":
-        cmd = [sys.executable, str(BASELINE_SCRIPT)]
-    elif impl == "rust":
-        cmd = [str(RUST_BINARY)]
-    else:
-        raise ValueError(f"unknown impl: {impl}")
-    return subprocess.run(
-        cmd,
-        env=env,
-        cwd=str(REPO_ROOT),
-        capture_output=True,
-        text=True,
-    )
 
 
 class TestGolden(unittest.TestCase):
@@ -217,6 +187,42 @@ class TestGolden(unittest.TestCase):
             self.server.focus_calls.clear()
             self.server.requests.clear()
         self.assertEqual(calls["python"], calls["rust"], calls)
+
+    def test_cycle_restarts_when_pane_disappears_without_event(self):
+        state_dirs = {
+            "python": Path(self.tmp.name) / "state-py-disappear",
+            "rust": Path(self.tmp.name) / "state-rs-disappear",
+        }
+        for d in state_dirs.values():
+            d.mkdir(parents=True, exist_ok=True)
+
+        # First cycle establishes order [0,1,2,3,4] and focuses pane-0001.
+        calls1 = {}
+        for impl in ("python", "rust"):
+            rc, stderr, _ = self._run(
+                impl, state_dirs[impl], action="cycle", pane_id=self.panes[0]["pane_id"]
+            )
+            self.assertEqual(rc, 0, f"{impl} failed: {stderr}")
+            calls1[impl] = list(self.server.focus_calls)
+            self.server.focus_calls.clear()
+            self.server.requests.clear()
+        self.assertEqual(calls1["python"], calls1["rust"], calls1)
+
+        # Simulate a pane disappearing from pane.list without a pane.closed event.
+        self.server.panes = self.panes[:4]
+
+        current = calls1["python"][-1]
+        calls2 = {}
+        for impl in ("python", "rust"):
+            rc, stderr, _ = self._run(
+                impl, state_dirs[impl], action="cycle", pane_id=current
+            )
+            self.assertEqual(rc, 0, f"{impl} failed: {stderr}")
+            calls2[impl] = list(self.server.focus_calls)
+            self.server.focus_calls.clear()
+            self.server.requests.clear()
+        self.assertEqual(calls2["python"], calls2["rust"], calls2)
+        self.assertEqual(calls2["python"], [self.panes[0]["pane_id"]])
 
 
 if __name__ == "__main__":

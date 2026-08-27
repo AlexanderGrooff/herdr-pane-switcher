@@ -1,52 +1,34 @@
-# Pane Switcher (herdr-pane-switcher)
+# Pane Switcher
 
-A [Herdr](https://herdr.dev) plugin that cycles panes in most-recently-used order across all workspaces and jumps to panes that need attention, in priority order: `blocked`, `done`, `idle`, `working`.
+A [Herdr](https://herdr.dev) plugin for switching panes across all workspaces:
+
+- **Cycle MRU panes** — return to the pane you used most recently, then keep moving backward through pane history.
+- **Focus attention** — jump to the highest-priority agent pane.
+- **Cycle attention** — move through agent panes by priority.
 
 ## Requirements
 
-- Herdr >= 0.7.5
-- macOS or Linux (uses Unix-domain sockets and file locking)
-- A Rust toolchain is required to build the plugin and run its test/benchmark harnesses
+- Herdr 0.7.5 or newer
+- macOS or Linux on x86-64 or ARM64
 
-## How it works
+Installing a release does not require Rust.
 
-The plugin is a single Rust binary (`bin/herdr-mru-cycle`) that is executed by Herdr for each action and event.
-
-- On every `pane.focused`/`pane.closed` event, the plugin updates the MRU history stored in `HERDR_PLUGIN_STATE_DIR`.
-- `herdr.pane-switcher.cycle` focuses the next pane in MRU order.
-- `herdr.pane-switcher.focus-attention` focuses the first pane by `agent_status` priority: `blocked`, then `done`, then `idle`, then `working`.
-- `herdr.pane-switcher.cycle-attention` cycles to the next pane in that same priority order after the current one, wrapping to the first.
-- Repeated `cycle` invocations within the 1-second timeout continue cycling through the same MRU order instead of restarting.
-
-State is stored in `HERDR_PLUGIN_STATE_DIR/state.bin` with advisory file locking so multiple concurrent invocations are safe.
-
-## Loading the plugin
-
-The plugin is loaded through Herdr's plugin registry. After loading, add a keybinding (see [Binding a key](#binding-a-key)) or run it manually.
-
-### As a regular user from a local clone
+## Install
 
 ```bash
-git clone <repo-url> /path/to/herdr-pane-switcher
-cd /path/to/herdr-pane-switcher
-make build
-herdr plugin link /path/to/herdr-pane-switcher
-herdr plugin list
+herdr plugin install AlexanderGrooff/herdr-pane-switcher
 herdr plugin action list --plugin herdr.pane-switcher
 ```
 
-### As a regular user from GitHub (if published)
+The first command downloads the prebuilt binary for your platform and verifies its checksum. Herdr may ask for confirmation; add `--yes` for a non-interactive install. The second command should list:
 
-```bash
-herdr plugin install <owner>/herdr-pane-switcher
-herdr plugin action list --plugin herdr.pane-switcher
-```
+- `herdr.pane-switcher.cycle`
+- `herdr.pane-switcher.focus-attention`
+- `herdr.pane-switcher.cycle-attention`
 
-For non-interactive installation, add `--yes`.
+## Add keybindings
 
-## Binding a key
-
-Add entries to `~/.config/herdr/config.toml`:
+Add the following to `~/.config/herdr/config.toml`:
 
 ```toml
 [[keys.command]]
@@ -68,9 +50,34 @@ command = "herdr.pane-switcher.cycle-attention"
 description = "cycle attention panes"
 ```
 
-Then reload Herdr's config or restart Herdr.
+Apply the change:
 
-You can also invoke the actions manually:
+```bash
+herdr server reload-config
+```
+
+Prefix bindings are recommended because terminals or macOS often intercept `ctrl+tab`. If you prefer direct bindings, use Herdr's safe `ctrl+alt` modifier family, for example `ctrl+alt+tab`.
+
+## What to expect
+
+### Cycle MRU panes
+
+After installation, the plugin silently records pane focus and close events. Press `prefix+tab` once to switch to the previously focused pane, even if it is in another workspace. Press it again within one second to move to the next pane in the same captured MRU order. Cycling wraps at the end.
+
+History builds as you use Herdr; panes not yet seen by the plugin follow the order returned by Herdr. After a one-second pause, the next press starts a new cycle from the current history. With fewer than two panes, nothing moves.
+
+### Focus or cycle attention panes
+
+`prefix+shift+tab` selects the first pane in this priority order:
+
+1. `blocked`
+2. `done`
+3. `idle`
+4. `working`
+
+`prefix+a` selects the next pane in that order and wraps to the first. Panes without one of these statuses are skipped. If no pane has a recognized status, nothing moves.
+
+You can test the actions without keybindings:
 
 ```bash
 herdr plugin action invoke herdr.pane-switcher.cycle
@@ -78,72 +85,38 @@ herdr plugin action invoke herdr.pane-switcher.focus-attention
 herdr plugin action invoke herdr.pane-switcher.cycle-attention
 ```
 
-## Development
+## Troubleshooting
 
-The Makefile runs the Rust toolchain, integration tests, and a micro-benchmark:
-
-```bash
-make build       # cargo build --release + copy binary to bin/
-make test        # fmt, clippy, cargo test, integration tests, benchmark sanity
-```
-
-Link the built plugin once:
+Confirm that Herdr loaded the plugin and inspect its logs:
 
 ```bash
-herdr plugin link /path/to/herdr-pane-switcher
-herdr plugin list
+herdr plugin list --plugin herdr.pane-switcher
 herdr plugin action list --plugin herdr.pane-switcher
-```
-
-Then edit `src/main.rs` and re-run `make build` (or `make install-local`) to update the binary. The Rust binary is executed fresh for each action/event, so changes take effect immediately after rebuilding.
-
-For manifest changes, unlink and re-link the plugin, or restart Herdr:
-
-```bash
-herdr plugin unlink herdr.pane-switcher
-make install-local
-herdr plugin link /path/to/herdr-pane-switcher
-herdr server reload-config
-```
-
-Or use the convenience target:
-
-```bash
-make reload
-```
-
-Inspect logs:
-
-```bash
 herdr plugin log list --plugin herdr.pane-switcher
 ```
 
-To remove the local link without deleting files:
+If an action works when invoked manually but not from the keyboard, the terminal or operating system is probably consuming the key combination. Use the prefix bindings above or a `ctrl+alt` binding.
+
+## Build from source
+
+Building requires Rust, Cargo, and `make`:
+
+```bash
+git clone https://github.com/AlexanderGrooff/herdr-pane-switcher.git
+cd herdr-pane-switcher
+make build
+herdr plugin link "$PWD"
+```
+
+Re-run `make build` after Rust changes. Run `make reload` after manifest changes. To verify the project or run its benchmark:
+
+```bash
+make test
+make benchmark
+```
+
+Remove a local link without deleting the checkout:
 
 ```bash
 herdr plugin unlink herdr.pane-switcher
 ```
-
-### Benchmarking
-
-Run the Rust benchmark harness:
-
-```bash
-make benchmark
-```
-
-The harness reports fixture/action progress to stderr and bounds each plugin
-process to 15 seconds, so a stalled socket cannot make the run appear silent or
-hang indefinitely. The default run is intentionally comprehensive; use
-`target/release/benchmark --iterations 10 --warmup 1` for a quicker local check.
-
-This writes `benchmarks/output/report.md`, `benchmarks/output/samples.json`, and `benchmarks/output/samples.csv`.
-
-## File layout
-
-- `herdr-plugin.toml` — plugin manifest
-- `src/main.rs` — Rust implementation of the plugin binary
-- `src/bin/benchmark.rs` — Rust-only benchmark harness
-- `src/test_support.rs` — shared mock server, fixtures, and plugin runner for Rust tests and benchmarks
-- `tests/plugin.rs` — Rust integration tests for plugin behavior
-- `tests/manifest.rs` — static checks for plugin manifest and repository layout

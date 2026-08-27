@@ -6,8 +6,7 @@ A [Herdr](https://herdr.dev) plugin that cycles panes in most-recently-used orde
 
 - Herdr >= 0.7.5
 - macOS or Linux (uses Unix-domain sockets and file locking)
-- A Rust toolchain is required to build the plugin from source
-- Python 3 is only needed for running the benchmark/golden-test harness locally
+- A Rust toolchain is required to build the plugin and run its test/benchmark harnesses
 
 ## How it works
 
@@ -81,11 +80,11 @@ herdr plugin action invoke herdr.pane-switcher.cycle-attention
 
 ## Development
 
-The Makefile runs the Rust toolchain, unit tests, Python golden tests, and a micro-benchmark:
+The Makefile runs the Rust toolchain, integration tests, and a micro-benchmark:
 
 ```bash
 make build       # cargo build --release + copy binary to bin/
-make test        # fmt, clippy, cargo test, golden tests, benchmark sanity
+make test        # fmt, clippy, cargo test, integration tests, benchmark sanity
 ```
 
 Link the built plugin once:
@@ -127,7 +126,7 @@ herdr plugin unlink herdr.pane-switcher
 
 ### Benchmarking
 
-Run a side-by-side comparison against the Python baseline:
+Run the Rust benchmark harness:
 
 ```bash
 make benchmark
@@ -136,7 +135,7 @@ make benchmark
 The harness reports fixture/action progress to stderr and bounds each plugin
 process to 15 seconds, so a stalled socket cannot make the run appear silent or
 hang indefinitely. The default run is intentionally comprehensive; use
-`python3 benchmarks/run.py --iterations 10 --warmup 1` for a quicker local check.
+`target/release/benchmark --iterations 10 --warmup 1` for a quicker local check.
 
 This writes `benchmarks/output/report.md`, `benchmarks/output/samples.json`, and `benchmarks/output/samples.csv`.
 
@@ -144,9 +143,7 @@ This writes `benchmarks/output/report.md`, `benchmarks/output/samples.json`, and
 
 - `herdr-plugin.toml` — plugin manifest
 - `src/main.rs` — Rust implementation of the plugin binary
-- `benchmarks/baseline.py` — reference Python implementation used for golden tests and benchmarks
-- `benchmarks/run.py` — benchmark harness
-- `helpers/mock_herdr_server.py` — mock Unix socket server used by golden tests and benchmarks
-- `helpers/plugin_harness.py` — shared pane fixtures and implementation runner for tests and benchmarks
-- `tests/test_golden.py` — equivalence tests between Python and Rust implementations
-- `tests/test_manifest.py` — static checks for plugin manifest and layout
+- `src/bin/benchmark.rs` — Rust-only benchmark harness
+- `src/test_support.rs` — shared mock server, fixtures, and plugin runner for Rust tests and benchmarks
+- `tests/plugin.rs` — Rust integration tests for plugin behavior
+- `tests/manifest.rs` — static checks for plugin manifest and repository layout

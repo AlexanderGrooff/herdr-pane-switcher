@@ -6,12 +6,10 @@ This is a Herdr plugin that cycles panes in most-recently-used order and jumps t
 
 - `herdr-plugin.toml` — manifest declaring plugin id `herdr.pane-switcher`, the `cycle`, `focus-attention`, and `cycle-attention` actions, plus `pane.focused`/`pane.closed` event hooks.
 - `src/main.rs` — Rust implementation compiled to `bin/herdr-mru-cycle`.
-- `benchmarks/baseline.py` — reference Python implementation used only for golden tests and benchmarks.
-- `benchmarks/run.py` — benchmark harness.
-- `helpers/mock_herdr_server.py` — mock Unix socket server used by golden tests and benchmarks.
-- `helpers/plugin_harness.py` — shared pane fixtures and implementation runner used by golden tests and benchmarks.
-- `tests/test_golden.py` — equivalence tests between Python and Rust.
-- `tests/test_manifest.py` — static checks for the manifest and repository layout.
+- `src/bin/benchmark.rs` — Rust-only benchmark harness.
+- `src/test_support.rs` — shared mock Unix socket server, pane fixtures, and plugin runner for tests and benchmarks.
+- `tests/plugin.rs` — Rust integration tests for plugin behavior.
+- `tests/manifest.rs` — static checks for the manifest and repository layout.
 
 ## Runtime
 
@@ -44,8 +42,8 @@ herdr plugin install <owner>/herdr-pane-switcher
 3. Edit `src/main.rs` and re-run `make build` (or `make install-local`). The binary is executed fresh for each action/event, so Rust changes take effect immediately.
 4. For manifest changes, unlink and re-link, or restart Herdr: `make reload`.
 5. Watch plugin logs with `herdr plugin log list --plugin herdr.pane-switcher`.
-6. Run `make test` for Rust tests, golden tests, and benchmark sanity.
-7. Run `make benchmark` for a side-by-side comparison against the Python baseline.
+6. Run `make test` for Rust unit tests, integration tests, and benchmark sanity.
+7. Run `make benchmark` for the Rust-only benchmark.
 
 When keybinding the actions for a regular user, add them to `~/.config/herdr/config.toml`.
 Prefix-mode is the safest default, because `ctrl+tab`/`ctrl+shift+tab` are

@@ -3,6 +3,7 @@
 BINARY = herdr-mru-cycle
 CARGO_TARGET = target/release/$(BINARY)
 BIN_TARGET = bin/$(BINARY)
+BENCHMARK = target/release/benchmark
 
 build:
 	cargo build --release
@@ -12,24 +13,23 @@ build:
 
 test: build
 	cargo fmt --check
-	cargo clippy -- -D warnings
+	cargo clippy --all-targets -- -D warnings
 	cargo test
+	cargo build --release --bin benchmark
 	@set -e; \
-	if command -v ruff >/dev/null 2>&1; then ruff check .; fi; \
-	python3 -m py_compile benchmarks/baseline.py benchmarks/run.py helpers/plugin_harness.py tests/test_golden.py tests/test_manifest.py; \
-	python3 -m unittest discover tests; \
 	TMP=$$(mktemp -d); \
 	trap 'rm -rf "$$TMP"' EXIT; \
-	python3 benchmarks/run.py --impl rust --sizes 5 50 500 --iterations 1 --warmup 0 --output-dir "$$TMP"; \
+	$(BENCHMARK) --sizes 5 50 500 --iterations 1 --warmup 0 --output-dir "$$TMP" >/dev/null; \
 	test -f "$$TMP/report.md"; \
 	test -f "$$TMP/samples.json"; \
 	test -f "$$TMP/samples.csv"; \
-	grep -q '| 5 | cycle ' "$$TMP/report.md"; \
-	grep -q '| 50 | focus-attention ' "$$TMP/report.md"; \
-	grep -q '| 500 | pane.closed ' "$$TMP/report.md"
+	awk '/\| 5 \| cycle \| Rust / {found=1} END {exit !found}' "$$TMP/report.md"; \
+	awk '/\| 50 \| focus-attention \| Rust / {found=1} END {exit !found}' "$$TMP/report.md"; \
+	awk '/\| 500 \| pane.closed \| Rust / {found=1} END {exit !found}' "$$TMP/report.md"
 
 benchmark: build
-	python3 benchmarks/run.py
+	cargo build --release --bin benchmark
+	$(BENCHMARK)
 
 install-local: build
 

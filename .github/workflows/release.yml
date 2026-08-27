@@ -60,13 +60,11 @@ jobs:
           asset="herdr-mru-cycle-${{ matrix.target }}.tar.gz"
           mkdir -p dist
           tar czf "dist/${asset}" -C "target/${{ matrix.target }}/release" herdr-mru-cycle
-          python3 - "$asset" <<'PY'
-          import hashlib, pathlib, sys
-          asset = sys.argv[1]
-          path = pathlib.Path("dist") / asset
-          digest = hashlib.sha256(path.read_bytes()).hexdigest()
-          (path.with_suffix(path.suffix + ".sha256")).write_text(f"{digest}  {path.name}\n")
-          PY
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "dist/${asset}" > "dist/${asset}.sha256"
+          else
+            shasum -a 256 "dist/${asset}" > "dist/${asset}.sha256"
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

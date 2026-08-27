@@ -4,8 +4,8 @@ mod json {
     use serde_json::Value;
 
     /// Recursively search a JSON value for the first occurrence of `key`.
-    /// Mirrors Python's nested_value helper so the Rust client is tolerant
-    /// of both the mock server's response shape and Herdr's internally-tagged
+    /// The recursive lookup keeps the client tolerant of both the mock
+    /// server's response shape and Herdr's internally-tagged
     /// response shapes.
     pub fn nested_value<'v>(value: &'v Value, key: &str) -> Option<&'v Value> {
         match value {
